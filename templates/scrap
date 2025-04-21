@@ -1,0 +1,84 @@
+canvas.onwheel =  (e) =>  {
+	if (e.ctrlKey || Math.abs(e.deltaY) < 1) {
+	e.preventDefault(); // Prevent default scroll behavior
+
+	const zoomFactor = 1.05;
+	const zoomDirection = e.deltaY < 0 ? 1 : -1;
+	let newZoom = zoom * (zoomDirection === 1 ? zoomFactor : 1 / zoomFactor);
+
+
+
+	// Get cursor position relative to canvas
+	const rect = canvas.getBoundingClientRect();
+	const cursorX = e.clientX - rect.left;
+	const cursorY = e.clientY - rect.top;
+
+	const deltaX = top_left_loc.x - cursorX;
+	const deltaY = top_left_loc.y - cursorY;
+
+
+	if (zoomDirection == 1) {
+		top_left_loc = {
+			x: top_left_loc.x + zoomDirection * (zoomFactor - 1) * deltaX,
+			y: top_left_loc.y + zoomDirection * (zoomFactor - 1) * deltaY,
+		}
+		} else {
+		top_left_loc = {
+			x: top_left_loc.x + zoomDirection * (zoomFactor - 1) * deltaX / zoomFactor,
+			y: top_left_loc.y + zoomDirection * (zoomFactor - 1) * deltaY / zoomFactor,
+		}
+		}
+
+	change_zoom(newZoom);
+	update_display();
+
+	}
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# @app.route('/delete_token', methods=['POST'])
+# def delete_token():
+#     if request.method != 'POST':
+#         return 'Method not allowed', 405
+
+#     # Check for required form data
+#     if 'userid' not in session:
+#         return 'You\'re not logged in', 400
+    
+#     user = db.session.get(User, session['userid'])
+
+#     if user is None:
+#         logout()
+#         return 'User not found', 404
+
+#     if 'token_id' not in request.form:
+#         return "Insufficient data", 400
+
+#     token = get_Token(request.form['token_id'])
+#     if token is None:
+#         return 'No token found', 404
+
+#     if token.owner_id != user.user_id:
+#         return 'You don\'t own this token', 405
+
+   
+#     user.delete_token(token)
+    
+#     for board in get_user_boards(user):
+#         socketio.emit('update etc', room=str(board.board_id))
+#     #     socketio.emit('update grid_data', room=str(board.board_id))
+#     socketio.emit('refresh', room='admin')
+#     return redirect(request.referrer or '/')
+

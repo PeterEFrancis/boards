@@ -1,0 +1,10 @@
+Jinja2
+Flask
+flask-heroku
+Flask-SQLAlchemy
+flask-socketio
+gunicorn
+SQLAlchemy
+numpy
+eventlet
+psycopg2

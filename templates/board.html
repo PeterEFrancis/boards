@@ -1,0 +1,1364 @@
+<!doctype html>
+<html lang="en" class="h-100">
+	<head>
+		<title>Board | {{board.name}}</title>
+		<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta name="description" content="">
+		<meta name="keywords" content="">
+
+		<!-- do not cache this page -->
+		<meta http-equiv="cache-control" content="max-age=0"/>
+		<meta http-equiv="cache-control" content="no-cache"/>
+		<meta http-equiv="expires" content="0"/>
+		<meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT"/>
+		<meta http-equiv="pragma" content="no-cache"/>
+
+		<!-- Bootstrap -->
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+		<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+		<!-- socketIO -->
+		<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
+
+		<!-- sortable -->
+		<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+
+
+		<style>
+			html, body {
+				height: 100%;
+				overflow: hidden;
+				margin: 0;
+				padding: 0;
+			}
+
+			html {
+				min-width: 150px;
+			}
+
+			body {
+				color: lightgrey;
+				margin: 0;
+				padding: 0;
+			}
+
+			canvas {
+				display: block;
+				width: 100vw;
+				height: 100vh;
+				background-color: black;
+			}
+
+			#tools-toggle {
+				opacity: 0.25;
+				transition: opacity 0.4s ease;
+			}
+
+			#tools-toggle:hover {
+				opacity: 1;
+				transition: opacity 0.4s ease;
+			}
+
+			#tokenContainer {
+				height: 100px;
+				overflow-y: auto;
+			}
+
+			label {
+				white-space: nowrap;
+			}
+
+			.accordion-button::after {
+				filter: invert(1); /* Makes the dark chevron light */
+			}
+
+			.accordion-button:not(.collapsed)::after {
+				filter: invert(1); /* Keeps it light when expanded too */
+			}
+
+			/* Optional: override accordion-button focus ring */
+			.accordion-button:focus {
+				box-shadow: none;
+			}
+
+			.accordion-button {
+				background-color:rgb(55 58 60) !important
+			}
+
+			.token-img {
+				width: 50px;
+				height: 50px;
+				cursor: pointer;
+			}
+
+			#icon-container img {
+				width: 50px;
+				height: 50px;
+				cursor: pointer;
+				margin: 4px;
+			}
+
+			.image-avatar {
+				border-radius: 50%;
+			}
+
+			#map-select img {
+				height: 50px;
+				max-width: 200px;
+			}
+
+			#token-keybindings img {
+				width: 50px;
+				margin-right: 5px;
+			}
+
+
+			#map-select .map-button-wrapper {
+				position: relative;
+				display: flex;
+				width: 100%;
+			}
+
+			#map-select .main-btn {
+				flex: 1;
+				transition: all 0.3s ease;
+				overflow: hidden;
+			}
+
+			#map-select .trash-btn {
+				width: 0;
+				opacity: 0;
+				overflow: hidden;
+				transition: all 0.3s ease;
+				padding: 0;
+				border: none;
+			}
+
+			#map-select .map-button-wrapper:hover .main-btn {
+				flex: 0 1 calc(100% - 3rem); /* Shrink the main button */
+			}
+
+			#map-select .map-button-wrapper:hover .trash-btn {
+				width: 3rem;
+				opacity: 1;
+				padding: 0.375rem 0.5rem;
+			}
+
+
+
+		</style>
+	</head>
+	<body>
+		<canvas id="display">
+			HTML Canvas element is not supported on your device and/or browser.
+		</canvas>
+
+		<button id="tools-toggle" class="btn position-fixed bottom-0 start-0 m-1" style="color: white" data-bs-toggle="offcanvas" data-bs-target="#offcanvas" aria-controls="offcanvas">
+			<i class="bi bi-gear"></i>
+		</button>
+
+		<div id="controls" class="offcanvas offcanvas-start show bg-dark text-light" data-bs-scroll="true" data-bs-backdrop="false" tabindex="-1" id="offcanvas" aria-labelledby="offcanvasLabel">
+			<div class="offcanvas-header border-bottom">
+				<h5 class="offcanvas-title" id="offcanvasLabel">Controls</h5>
+				<button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+			</div>
+			<div class="offcanvas-body small p-0 d-flex flex-column h-100">
+
+				<div class="accordion accordion-flush w-100 bg-dark text-light" id="accordionExample">
+					<div class="accordion-item bg-dark text-light">
+						<h2 class="accordion-header bg-dark text-light" id="headingOne">
+							<button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
+								Display
+							</button>
+						</h2>
+						<div id="collapseOne" class="accordion-collapse collapse bg-dark text-light" aria-labelledby="headingOne" data-bs-parent="#accordionExample">
+							<div class="accordion-body">
+								<div class="mb-3">
+									<label for="zoom-slider" class="form-label">Zoom</label>
+									<input class="form-range" id="zoom-slider" type="range" value="0.5" min="0.01" max="4" step="0.01" oninput="set_zoom(this.value); update_display();">
+								</div>
+				
+								<div class="mb-3">
+									<label for="opacity-slider" class="form-label">Map Opacity</label>
+									<input class="form-range" id="opacity-slider" type="range" value="1" min="0" max="1" step="0.01" oninput="map_opacity = this.value; update_display();">
+								</div>
+				
+								<div class="row">
+									<div class="col-sm-3 mb-3">
+										<label for="grid-color" class="form-label">Grid</label>
+										<input type="color" id="grid-color" value="#808080" oninput="update_color('grid', this.value);" class="form-control form-control-color w-100">
+									</div>
+				
+									<div class="col-sm-3 mb-3">
+										<label for="bg-color" class="form-label">Background</label>
+										<input type="color" id="bg-color" value="#000000" oninput="update_color('background', this.value);" class="form-control form-control-color w-100">
+									</div>
+				
+									<div class="col-sm-3 mb-3">
+										<label for="table-color" class="form-label">Table</label>
+										<input type="color" id="table-color" value="#000000" oninput="update_color('table', this.value);" class="form-control form-control-color w-100">
+									</div>
+				
+									<div class="col-sm-3 mb-3">
+										<label for="table-color" class="form-label">Selection</label>
+										<input type="color" id="table-color" value="#00FFFF" oninput="update_color('selection', this.value);" class="form-control form-control-color w-100">
+									</div>
+								</div>
+
+								<div class="mb-3 d-flex align-items-center gap-3">
+									<div class="w-50">
+										<label for="distance-dropdown" class="form-label">Show Distance</label>
+										<select id="distance-dropdown" class="form-select" onchange="update_distance_metric(this.value)">
+											<option value="none" selected>No</option>
+											<option value="L1">L1 (Manhattan)</option>
+											<option value="L2">L2 (Euclidean)</option>
+											<option value="Li">L&infin; (Chebyshev)</option>
+										</select>
+									</div>
+									<div class="w-50">
+										<label for="distance-multiplier" class="form-label">Multiplier</label>
+										<input value="1" id="distance-multiplier" class="form-control" type="number" step="1" min="0" max="100" onchange="if (this.value) {this.value = Math.min(Math.max(0.1, this.value), 100);} else {this.value=1}; distance_multiplier=this.value; update_display();" />
+
+									</div>
+								</div>
+
+							</div>
+						</div>
+					</div>
+					<div {% if not is_owner %} hidden {% endif %} class="accordion-item bg-dark text-light">
+						<h2 class="accordion-header" id="headingTwo">
+							<button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo" aria-expanded="false" aria-controls="collapseTwo">
+								Map
+							</button>
+						</h2>
+						<div id="collapseTwo" class="accordion-collapse collapse show" aria-labelledby="headingTwo" data-bs-parent="#accordionExample">
+							<div class="accordion-body">
+								<label class="form-label">Toggle and Reorder Map Layers</label>
+								<ul id="map-select" class="list-unstyled"></ul>
+								  
+								  
+								<hr class="bg-light">
+								<form id="upload_map_form" class="mb-3">
+									<label for="image" class="form-label">Upload Map</label>
+									<div class="d-flex align-items-center gap-3">
+										<input type="hidden" name="board_method" value="upload_map" required>
+										<input type="hidden" name="board_id" value="{{board.board_id}}" required>
+										<input type="text" placeholder="Name" class="form-control" name="name" required>
+										<input type="file" class="form-control" name="image" required>
+										<button type="submit" class="btn btn-outline-primary">Upload</button>
+									</div>
+								</form>
+
+								<hr class="bg-light">
+
+								<div class="row">
+									<div class="mb-3 col-sm-6">
+										<label for="num-columns" class="form-label d-block text-center">Columns</label>
+										<input id="num-columns" class="form-control" type="number" step="1" min="1" max="200" onchange="if (this.value) {this.value = Math.min(Math.max(1, this.value), 200); change_num_squares('x', this.value)}" value="{{num_squares.x}}"/>
+									</div>
+				
+									<div class="mb-3 col-sm-6">
+										<label for="num-rows" class="form-label d-block text-center">Rows</label>
+										<input id="num-rows" class="form-control" type="number" step="1" min="1" max="200" onchange="if (this.value) {this.value = Math.min(Math.max(1, this.value), 200); change_num_squares('y', this.value)}" value="{{num_squares.y}}"/>
+									</div>
+								</div>
+								
+								<hr class="bg-light">
+								
+								<button type="submit" class="btn btn-danger w-100 my-2" onclick="reset()">Clear Board</button>
+
+							</div>
+						</div>
+					</div>
+					<div class="accordion-item bg-dark text-light">
+						<h2 class="accordion-header" id="headingThree">
+							<button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThree" aria-expanded="false" aria-controls="collapseThree">
+								Key-Bindings
+							</button>
+						</h2>
+						<div id="collapseThree" class="accordion-collapse collapse" aria-labelledby="headingThree" data-bs-parent="#accordionExample">
+							<div class="accordion-body">
+								<table class="table text-light small table-borderless">
+									<tr>
+										<th>Open Token Menu</th>
+										<td>Tab</td>
+									</tr>
+									<tr>
+										<th>Deselect Square</th>
+										<td>Escape</td>
+									</tr>
+									<tr>
+										<th>Place/Move Your Avatar</th>
+										<td>Space</td>
+									</tr>
+									<tr>
+										<th>Move selected square</th>
+										<td>ArrowUp, ArrowDown, ArrowLeft, ArrowRight</td>
+									</tr>
+									<tr>
+										<th>Clear Square</th>
+										<td>Delete or Backspace</td>
+									</tr>
+									<tr>
+										<th>Toggle Control Panel</th>
+										<td>S</td>
+									</tr>
+								</table>
+								<hr class="bg-light">
+								<table id="token-keybindings" class="table text-light small table-borderless"></table>
+							</div>
+						</div>
+					</div>
+
+				
+					<!-- <div class="accordion-item bg-dark text-light">
+						<h2 class="accordion-header" id="headingFour">
+							<button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFour" aria-expanded="false" aria-controls="collapseFour">
+								Meta
+							</button>
+						</h2>
+						<div id="collapseFour" class="accordion-collapse collapse" aria-labelledby="headingFour" data-bs-parent="#accordionExample">
+							<div class="accordion-body">
+								<button class="btn btn-warning w-100" onclick="leave(); location.href='/user'">Leave</button>
+							</div>
+						</div>
+					</div> -->
+
+				</div>
+				
+			</div>
+		</div>
+
+		<div id="menu" class="position-absolute bg-dark text-light border rounded shadow p-2" style="display:none; z-index:1060; width:200px;">
+			<input type="text" id="tokenSearch" class="form-control form-control-sm mb-2 bg-light text-dark border-0 rounded" placeholder="Search...">
+			<div id="icon-container" class="d-flex flex-wrap"></div>
+		</div>
+	</body>
+
+
+
+<script>
+
+		const canvas = document.getElementById("display");
+		const ctx = canvas.getContext("2d");
+		const menu = document.getElementById("menu");
+
+
+		var colors = {
+			'grid': '#808080',
+			'background': '#000000',
+			'table': '#000000',
+			'selection': '#00FFFF'
+		}
+		var map_opacity = 1;
+		var distance_metric = 'none';
+		var distance_multiplier = 1;
+
+		var zoom;
+		var top_left_loc;
+
+		var menu_open = false;
+		
+		var selected_square = null;
+		
+		function update_color(part, c) {
+			colors[part] = c;
+			update_display();
+		}
+
+		function update_distance_metric(val) {
+			distance_metric = val;
+			update_display();
+		}
+
+		function set_zoom(val) {
+			zoom = val;
+			square_size = zoom * canvas.width / num_squares.x;
+			document.getElementById('zoom-slider').value = val;
+			localStorage.setItem('zoom+{{ board.board_id }}', JSON.stringify(zoom));
+
+		}
+		
+		function set_top_left(x, y) {
+			top_left_loc = {x:x, y:y};
+			localStorage.setItem('top_left_loc+{{ board.board_id }}', JSON.stringify(top_left_loc));
+		}
+		
+		function show_menu() {
+
+			if (!selected_square) return;
+
+			// Compute the screen position of the selected square
+			const x = top_left_loc.x + selected_square.c * square_size;
+			const y = top_left_loc.y + selected_square.r * square_size;
+
+			// Get canvas position relative to the page
+			const rect = canvas.getBoundingClientRect();
+
+			const menuX = rect.left + x;
+			const menuY = rect.top + y - 10;
+
+			menu_open = true;
+			menu.style.display = 'block';
+			menu.style.left = `${menuX}px`;
+			menu.style.top = `${menuY - menu.offsetHeight}px`; // show *above* the square
+		}
+
+		function close_menu() {
+			menu_open = false;
+			menu.style.display = "none";
+		}
+
+
+		function set_canvas_size() {
+			let ratios = {
+				x: top_left_loc.x / canvas.width,
+				y: top_left_loc.y / canvas.height
+			};
+			let rect = canvas.getBoundingClientRect();
+			canvas.width = rect.width;
+			canvas.height = rect.height;
+			set_top_left(
+				canvas.width * ratios.x,
+				canvas.height * ratios.y
+			);
+			square_size = zoom * canvas.width / num_squares.x;
+		}
+
+		window.onresize = (e) => {
+			close_menu();
+			set_canvas_size();
+			update_display();
+		};
+
+		function on_grid(e) {
+			var rect = canvas.getBoundingClientRect();
+			let c = Math.floor((e.clientX - rect.left - top_left_loc.x) / square_size);
+			let r = Math.floor((e.clientY - rect.top - top_left_loc.y) / square_size);
+			if (r >= 0 && r < num_squares.y && c >= 0 && c < num_squares.x) {
+				return {r:r, c:c};
+			}
+			return false;
+		}
+
+		function handleClick(e) {
+			let rc = on_grid(e);
+			if (rc) {
+				selected_square = rc;
+			} else {
+				selected_square = null;
+				
+			}
+			close_menu();
+			update_display()
+
+		};
+
+		var isDragging = false;
+		let last_top_left_loc;
+		let dragStart = { x: 0, y: 0 };
+		let offset = { x: 0, y: 0 };
+
+		canvas.onmousedown = (e) => {
+			offset = { x: 0, y: 0 };
+			last_top_left_loc = JSON.parse(JSON.stringify(top_left_loc));
+			isDragging = true;
+			dragStart.x = e.clientX - offset.x;
+			dragStart.y = e.clientY - offset.y;
+			close_menu();
+		};
+
+		canvas.onmousemove = (e) => {
+			if (!isDragging) return;
+			offset.x = (e.clientX - dragStart.x);
+			offset.y = (e.clientY - dragStart.y);
+			set_top_left(
+				last_top_left_loc.x + offset.x,
+				last_top_left_loc.y + offset.y
+			)
+			update_display();
+		};
+
+		canvas.onmouseup = (e) => {
+		  const totalMove = Math.hypot(offset.x, offset.y);
+		  isDragging = false;
+		  if (totalMove < 2) {
+		    handleClick(e);
+		  }
+		};
+
+		canvas.onmouseleave = (e) => {
+		  isDragging = false;
+		};
+
+
+		canvas.onwheel = (e) => {
+		  if (e.ctrlKey || Math.abs(e.deltaY) < 1) {
+		    e.preventDefault(); // Prevent default scroll behavior
+			close_menu();
+		    const zoomFactor = 1.05;
+		    const zoomMultiplier = e.deltaY < 0 ? zoomFactor : 1 / zoomFactor;
+		    const newZoom = zoom * zoomMultiplier;
+
+		    const rect = canvas.getBoundingClientRect();
+		    const cursorX = e.clientX - rect.left;
+		    const cursorY = e.clientY - rect.top;
+
+		    const deltaX = top_left_loc.x - cursorX;
+		    const deltaY = top_left_loc.y - cursorY;
+
+		    set_top_left(
+				cursorX + deltaX * zoomMultiplier,
+		      	cursorY + deltaY * zoomMultiplier
+		  	);
+
+		    set_zoom(newZoom);
+		    update_display();
+		  }
+		};
+
+
+
+
+
+		document.onkeydown = (e) => {
+
+
+			if (e.shiftKey) {
+
+				if (!selected_square) return;
+
+				for (let token_id in icons['token']) {
+					if (e.code === 'Key' + icons['token'][token_id].key) {
+						e.preventDefault();
+						set_square(selected_square, {'id':token_id, 'type':'token'});
+						break;
+					}
+				}
+
+				
+				
+			} else {
+
+				if (e.code === 'Tab' && document.activeElement === document.body) {
+					e.preventDefault();
+
+					if (menu_open) {
+						close_menu()
+					} else {
+						show_menu();
+					}
+				}
+				
+				if ((e.code === 'Delete' || e.code === 'Backspace') && document.activeElement === document.body) {
+					e.preventDefault();
+
+					if (!selected_square) return;
+
+					set_square(selected_square, null);
+
+				}
+
+				if (e.code === 'Space' && document.activeElement === document.body) {
+					e.preventDefault();
+					if (!selected_square) return;
+
+					set_square(selected_square, {'id':'{{user.user_id}}', 'type':'avatar'});
+				}
+
+				if (e.code === 'ArrowUp' && document.activeElement === document.body) {
+					e.preventDefault();
+					if (!selected_square) return;
+					selected_square.r = Math.max(0, selected_square.r - 1);
+					close_menu();
+					update_display()
+				}
+
+				if (e.code === 'ArrowDown' && document.activeElement === document.body) {
+					e.preventDefault();
+					if (!selected_square) return;
+					selected_square.r = Math.min(num_squares.y - 1, selected_square.r + 1);
+					close_menu();
+					update_display()
+				}
+
+				if (e.code === 'ArrowLeft' && document.activeElement === document.body) {
+					e.preventDefault();
+					if (!selected_square) return;
+					selected_square.c = Math.max(0, selected_square.c - 1);
+					close_menu();
+					update_display()
+				}
+
+				if (e.code === 'ArrowRight' && document.activeElement === document.body) {
+					e.preventDefault();
+					if (!selected_square) return;
+					selected_square.c = Math.min(num_squares.x - 1, selected_square.c + 1);
+					close_menu();
+					update_display()
+				}
+
+				if (e.code === 'Escape' && document.activeElement === document.body) {
+					e.preventDefault();
+					selected_square = null;
+					update_display()
+				}
+
+				if (e.code === 'KeyS') {
+					if (
+						!['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) &&
+						!document.activeElement.isContentEditable
+					) {
+						e.preventDefault();
+						const offcanvasEl = document.getElementById('controls'); // change to your ID
+						const bsOffcanvas = bootstrap.Offcanvas.getOrCreateInstance(offcanvasEl);
+						bsOffcanvas.toggle();
+					}
+				}
+
+			}
+
+
+		};
+
+
+
+		document.getElementById('tokenSearch').addEventListener('input', function () {
+			const search = this.value.toLowerCase();
+			const tokens = document.querySelectorAll('#icon-container .token-img');
+			tokens.forEach(token => {
+			  const name = token.dataset.name.toLowerCase();
+			  token.style.display = name.includes(search) ? 'inline-block' : 'none';
+			});
+		});
+
+	
+
+
+
+
+
+
+		var board = JSON.parse('{{ board.grid_data|tojson|safe }}');
+		
+		var icons = JSON.parse('{{ icons|tojson|safe }}');
+		var icon_images = {};
+
+		var maps = JSON.parse('{{ maps|tojson|safe }}');		
+		var map_images = {};
+		
+		var num_squares;
+		var square_size;
+		
+		var map_order;
+
+
+
+		function make_map_DOM(map) {
+			const img = new Image();
+			map_images[map.image_id] = img;
+			return new Promise((resolve, reject) => {
+				img.onload = () => resolve();
+				img.onerror = () => resolve();
+				img.setAttribute('name', 'map-' + map.image_id);
+				img.src = `/image/${map.image_id}`;
+			});
+		}
+
+		function make_icon_DOM(type, id) {
+			const img = new Image();
+			icon_images[type][id] = img;
+			return new Promise((resolve, reject) => {
+				img.onload = () => resolve();
+				img.onerror = () => resolve();
+				img.dataset.id = type + '-' + id;
+				img.classList.add('image-' + type)
+				img.src = `/${type}/${id}?t=${new Date().getTime()}`;
+			});
+		}
+
+		function create_DOMs(callback) {
+			// take the data objects given by server, and populate associated image objects
+
+			let imagePromises = [];
+
+			for (let type in icons) {
+				icon_images[type] = {};
+				
+				for (let id in icons[type]) {
+					imagePromises.push(make_icon_DOM(type, id));
+				}
+			}
+
+			for (let i = 0; i < maps.length; i++) {
+				imagePromises.push(make_map_DOM(maps[i]));
+			}
+
+
+			Promise.all(imagePromises).then(() => {				
+				if (typeof callback === 'function') {
+					callback();
+				}
+			});
+
+		}
+
+
+		function build_menu_item(type, id) {
+			let img = icon_images[type][id].cloneNode(true);
+			img.classList.add('token-img');
+			img.dataset.name = icons[type][id].name;
+			img.addEventListener('click', () => {
+				if (selected_square) {
+					set_square(selected_square, {
+						type: type,
+						id: id
+					});
+				}
+			});
+			return img;
+		}
+
+		function build_menu() {
+			let icon_container = document.getElementById('icon-container');
+			for (const type in icons) {
+				for (const id in icons[type]) {
+					icon_container.appendChild(build_menu_item(type, id));
+				}
+			}
+			order_menu();
+		}
+
+		function order_menu() {
+			let icon_container = document.getElementById('icon-container');
+
+			const images = Array.from(icon_container.children);
+
+			// Sort according to rules
+			images.sort((a, b) => {
+				const aType = a.dataset.id.startsWith("avatar") ? 0 : 1;
+				const bType = b.dataset.id.startsWith("avatar") ? 0 : 1;
+
+				if (aType !== bType) return aType - bType;
+
+				const aName = a.dataset.name || "";
+				const bName = b.dataset.name || "";
+				return aName.localeCompare(bName);
+			});
+
+			// Append sorted images back to container
+			images.forEach(img => icon_container.appendChild(img));
+		}
+
+
+		function build_map_select_li(map) {
+			const li = document.createElement('li');
+			li.setAttribute('id', 'map-select-li-' + map.image_id);
+			li.className = 'mb-2';
+
+			const wrapper = document.createElement('div');
+			wrapper.className = 'd-flex map-button-wrapper align-items-stretch position-relative';
+
+			const button = document.createElement('button');
+			button.className = 'main-btn btn flex-grow-1 d-flex align-items-center gap-3 btn-outline-primary';
+			
+			const eye = document.createElement('i');
+			eye.className = 'bi bi-eye';
+			eye.style.width = "20px";
+			eye.style.visibility = map.visible ? 'visible' : 'hidden';  
+			eye.id = 'map-eye-icon-' + map.image_id;
+			button.appendChild(eye);
+
+			button.appendChild(map_images[map.image_id].cloneNode(true));
+
+			
+
+			const label = document.createElement('span');
+			label.className = 'label-text';
+			label.textContent = map.name;
+			button.appendChild(label);
+
+			
+
+			const trashBtn = document.createElement('button');
+			trashBtn.className = 'trash-btn btn text-danger d-flex align-items-center justify-content-center';
+			trashBtn.innerHTML = '<i class="bi bi-trash"></i>';
+			trashBtn.onclick = () => {
+				navigator.sendBeacon(
+					'/board_access',
+					new Blob(
+						[
+							JSON.stringify({
+								image_id: map.image_id,
+								board_id: '{{board.board_id}}',
+								board_method: 'delete_map',
+							}),
+						],
+						{ type: 'application/json' }
+					)
+				);
+			};
+
+			button.onclick = function () {
+				navigator.sendBeacon(
+					'/board_access',
+					new Blob(
+						[
+							JSON.stringify({
+								image_id: map.image_id,
+								board_id: '{{board.board_id}}',
+								board_method: 'toggle_map_visibility',
+							}),
+						],
+						{ type: 'application/json' }
+					)
+				);
+			};
+
+			wrapper.appendChild(button);
+			wrapper.appendChild(trashBtn);
+			li.appendChild(wrapper);
+			return li;
+		}
+
+
+		function build_map_select() {
+			let map_select = document.getElementById('map-select');
+			map_select.innerHTML = "";
+			for (let i = 0; i < maps.length; i++) {
+				if (maps[i].editable == false) continue;
+				
+				let li = build_map_select_li(maps[i]);
+				map_select.appendChild(li);
+				
+			}
+
+			new Sortable(document.getElementById('map-select'), {
+				animation: 150,
+				ghostClass: 'sortable-ghost',
+				handle: 'button', // so users drag by clicking the button area
+				onEnd: function (evt) {
+					map_order = Array.from(document.querySelectorAll('#map-select img')).map(img => img.getAttribute('name').slice(4));
+					// reorder maps for no refresh flash
+					maps.sort((a, b) => map_order.indexOf(a.image_id) - map_order.indexOf(b.image_id));
+					navigator.sendBeacon(
+						'/board_access',
+						new Blob(
+							[JSON.stringify({
+								'board_method': 'reorder_maps',
+								'board_id': '{{board.board_id}}',
+								'order': map_order
+							})],
+							{type: 'application/json'}
+						)
+					);
+				}
+			});
+
+			
+		}
+
+
+		function set_keybindings() {
+			let token_keybindings = document.getElementById('token-keybindings');
+			token_keybindings.innerHTML = "";
+			let keys = [];
+			for (let token_id in icons['token']) {
+				if (icons['token'][token_id].key) {
+					const tr = document.createElement('tr');
+					tr.setAttribute('id', 'key-bind-token-' + token_id);
+					const th = document.createElement('th');
+					th.appendChild(icon_images['token'][token_id].cloneNode(true));
+					th.appendChild(document.createTextNode(icons['token'][token_id].name));
+					tr.appendChild(th);
+					const td = document.createElement('td');
+					td.innerText = 'Shift + ' + icons['token'][token_id].key;
+					if (keys.includes(icons['token'][token_id].key)) {
+						const warning = document.createElement('i');
+						warning.className = 'bi bi-exclamation-triangle-fill text-warning';
+						td.append(warning);
+					}
+					keys.push(icons['token'][token_id].key);
+					tr.appendChild(td);
+					token_keybindings.appendChild(tr);
+				}
+			}
+		}
+
+
+		window.onload = function() {
+			let rect = canvas.getBoundingClientRect();
+			canvas.width = rect.width;
+			canvas.height = rect.height;
+
+			num_squares = JSON.parse('{{ num_squares|tojson }}');
+
+			
+			if (localStorage.hasOwnProperty('zoom+{{ board.board_id }}')) {
+				zoom = JSON.parse(localStorage.getItem('zoom+{{ board.board_id }}'));
+				square_size = zoom * canvas.width / num_squares.x;
+			} else {
+				square_size = Math.min(canvas.width / num_squares.x, canvas.height / num_squares.y) / 1.2;
+				zoom = num_squares.x * square_size / canvas.width;
+			}
+
+			set_zoom(zoom);
+
+			
+			if (localStorage.hasOwnProperty('top_left_loc+{{ board.board_id }}')) {
+				top_left_loc = JSON.parse(localStorage.getItem('top_left_loc+{{ board.board_id }}'));
+			} else {
+				set_top_left(
+					(canvas.width - num_squares.x * square_size) / 2,
+					(canvas.height - num_squares.y * square_size) / 2,
+				);
+			}
+
+			create_DOMs(function() {
+				update_display();
+				build_menu();
+				build_map_select();
+				set_keybindings();
+			});
+			
+
+			var socket = io({transports: ['websocket']});
+	
+			socket.on('connect', function() {
+				console.log('connected to socketIO');
+				socket.emit('join', { board_id: '{{ board.board_id}}' });
+			});
+
+
+			// changes
+			socket.on('update icon', function(msg) {
+				console.log('socket: update image');
+				document.querySelectorAll(`[data-id="${msg.type}-${msg.id}"]`).forEach(img => {
+					img.src = `/${msg.type}/${msg.id}?t=${new Date().getTime()}`
+				});
+				make_icon_DOM(msg.type, msg.id).then(function() {
+					update_display();
+				});
+			});
+
+			socket.on('rebuild map select', function(msg) {
+				console.log('socket: rebuild map select');
+
+				if (!areMapsEqual(msg.maps, maps)) {
+					maps = msg.maps;
+					build_map_select();
+				}
+				update_display();
+				
+			});
+
+			socket.on('new map', function(msg) {
+				console.log('socket: new map');
+				
+				make_map_DOM(msg.map).then(() => {
+					update_display();
+				});
+				maps.push(msg.map);
+				let map_select = document.getElementById('map-select');
+				let li = build_map_select_li(msg.map);
+				map_select.appendChild(li);
+				
+								
+			});
+
+			socket.on('toggle visibility', function(msg) {
+				console.log('socket: toggle visibility');
+				let eye = document.getElementById('map-eye-icon-' + msg.image_id);
+				eye.style.visibility = eye.style.visibility == 'hidden' ? 'visible' : 'hidden';  
+				for (let i = 0; i < maps.length; i++) {
+					if (maps[i].image_id == msg.image_id) {
+						maps[i].visible = !maps[i].visible;
+						break;
+					}
+				}
+				update_display();
+			
+			});
+
+			socket.on('update squares', function(msg) {
+				console.log('socket: update squares');
+				for (let change of msg.changes) {
+					board[change[0].r][change[0].c] = change[1];
+				}
+				update_display();
+				
+			});
+
+			socket.on('update grid data', function(msg) {
+				console.log('socket: update grid data');
+				board = msg.board;
+				num_squares = {
+					x: board[0].length,
+					y: board.length
+				};
+				update_display();
+				
+			});
+
+			socket.on('update keybindings', function(msg) {
+				
+				icons['token'][msg.id] = msg.token;
+				set_keybindings();
+
+				// console.log('socket: update keybindings');
+				// icons['token'][msg.id] = msg.token;
+				// let tr = document.getElementById('key-bind-token-' + msg.id);
+				// console.log(tr)
+				// if (tr == null) {
+				// 	tr = document.createElement('tr');
+				// 	document.getElementById('token-keybindings').appendChild(tr);
+				// }
+				// tr.innerHTML = "";
+				// if (icons['token'][msg.id].key) {
+				// 	fill_key_bind_tr(tr, msg.id);
+				// }
+
+			});
+			
+			socket.on('update token size', function(msg) {
+				console.log('socket: update token size');
+				icons['token'][msg.id] = msg.token;
+				update_display();
+			});
+
+			socket.on('new token', function(msg) {
+				console.log('socket: new token');
+
+				icons['token'][msg.id] = msg.token;
+				make_icon_DOM('token', msg.id);
+				set_keybindings();
+				// let tr = document.createElement('tr');
+				// fill_key_bind_tr(tr, msg.id);
+				// document.getElementById('token-keybindings').appendChild(tr);
+				document.getElementById('icon-container').appendChild(build_menu_item('token', msg.id));
+				update_display();
+				order_menu();
+			});
+
+			socket.on('delete map', function(msg) {
+				console.log('socketio: delete map');
+				maps = maps.filter(map => map.image_id != msg.image_id);
+				console.log(maps);
+				document.getElementById('map-select-li-' + msg.image_id).remove();
+				delete map_images[msg.image_id];
+				update_display();
+			});
+
+			socket.on('user joined', function(msg) {
+				console.log('socketio: user joined');
+				// add tokens
+				for (let token_id in msg.tokens) {
+					icons['token'][token_id] = msg.tokens[token_id];
+					make_icon_DOM('token', token_id);
+					document.getElementById('icon-container').appendChild(build_menu_item('token', token_id));
+				}
+				
+				// set avatar image
+				icons['avatar'][msg.user_id] = {'name': msg.name};
+				make_icon_DOM('avatar', msg.user_id);
+				document.getElementById('icon-container').appendChild(build_menu_item('avatar', msg.user_id));
+				
+				order_menu();
+
+				// set keybindings
+				set_keybindings();
+				
+			})
+
+		};
+
+		function areMapsEqual(a, b) {
+			return a.length === b.length && a.every((obj, i) => {
+				const other = b[i];
+				return Object.keys(obj).every(k => obj[k] === other[k]);
+			});
+		}
+
+
+
+
+
+
+
+
+
+		const upload_map_form = document.getElementById('upload_map_form');
+
+		upload_map_form.addEventListener('submit', async (e) => {
+			e.preventDefault();
+
+			const res = await fetch('/board_access', {
+				method: 'POST',
+				body: new FormData(upload_map_form)
+			});
+
+			const message = await res.text();
+
+			if (res.ok) {
+				document.querySelector('#upload_map_form input').value = '';
+			} else {
+				alert(message); // Show error message	
+			}
+		});
+
+		function reset() {
+			navigator.sendBeacon(
+				'/board_access',
+				new Blob(
+					[JSON.stringify({
+						'board_id': '{{board.board_id}}',
+						'board_method': 'reset'
+					})],
+					{type: 'application/json'}
+				));
+		}
+
+		function change_num_squares(ax, num) {
+			navigator.sendBeacon(
+				'/board_access',
+				new Blob(
+					[JSON.stringify({
+						'board_method': 'change_num_squares',
+						'board_id': '{{board.board_id}}',
+						'axis': ax,
+						'num': num
+					})],
+					{type: 'application/json'}
+				)
+			);
+		}
+
+
+		function set_square(square, content) {
+			close_menu();
+			navigator.sendBeacon(
+				'/board_access',
+				new Blob([JSON.stringify({
+					'board_method': 'set_square',
+					'board_id': "{{board.board_id}}",
+					'square': square,
+					'content': content
+				})], { type: 'application/json' })
+			);
+		}
+
+
+		// function leave() {
+		// 	navigator.sendBeacon("/leave");
+		// }
+
+
+
+
+
+
+
+
+
+
+
+		function update_display() {
+			const LINE_WIDTH = 1;
+
+
+			// clear the display
+			// ctx.clearRect(0, 0, canvas.width, canvas.height);
+			
+			// table color
+			ctx.fillStyle = colors.table;
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+			// background color
+			ctx.fillStyle = colors.background;
+			ctx.fillRect(
+				top_left_loc.x,
+				top_left_loc.y,
+				square_size * num_squares.x,
+				square_size * num_squares.y
+			);
+
+			// maps
+			ctx.globalAlpha = map_opacity;
+			for (let i = maps.length - 1; i >= 0; i--) {
+				if (maps[i].visible) {
+					ctx.drawImage(
+					map_images[maps[i].image_id],
+					top_left_loc.x,
+					top_left_loc.y,
+					square_size * num_squares.x,
+					square_size * num_squares.y
+					);
+				}
+			}
+			
+			ctx.globalAlpha = 1; 
+
+
+			// fill squares
+			let TYPES = ['token', 'avatar']; // this is the order they are displayed
+			for (let type of TYPES) {
+				for (let i = 0; i < num_squares.y; i++) {
+					for (let j = 0; j < num_squares.x; j++) {
+						if (board[i][j] != null) {
+							let x = j * square_size;
+							let y = i * square_size;
+							if (board[i][j].type == type) {
+								if (board[i][j].type == "color") {
+									ctx.fillStyle = board[i][j].data;
+									ctx.fillRect(
+										top_left_loc.x + x,
+										top_left_loc.y + y,
+										square_size,
+										square_size
+									);
+								} else if (board[i][j].type == "text") {
+									ctx.fillStyle = "white";
+									ctx.font = "100px serif";
+								ctx.textBaseline = "middle";
+									ctx.textAlign = "center";
+									ctx.fillText(
+										board[i][j].data,
+										top_left_loc.x + x + square_size / 2,
+										top_left_loc.y + y + square_size / 2,
+										square_size
+									);
+								} else if (board[i][j].type == 'token') {
+									let img = icon_images[board[i][j].type][board[i][j].id];
+									let size = icons[board[i][j].type][board[i][j].id].size;
+									// size *= board[i][j].size || 1;
+									if (img?.complete) {
+										ctx.drawImage(
+											img,
+											top_left_loc.x + x - square_size * (size - 1) / 2,
+											top_left_loc.y + y - square_size * (size - 1) / 2,
+											square_size * size,
+											square_size * size
+										);
+									}
+								} else if (board[i][j].type == "avatar") {
+									let img = icon_images[board[i][j].type][board[i][j].id];
+									if (img?.complete) {
+										const centerX = top_left_loc.x + x + square_size / 2;
+										const centerY = top_left_loc.y + y + square_size / 2;
+										const radius = square_size / 2 - square_size / 10;
+
+										ctx.save();
+										ctx.beginPath();
+										ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+										ctx.closePath();
+										ctx.clip(); // Set the clip to the circular path
+
+										ctx.drawImage(
+											img,
+											top_left_loc.x + x + square_size / 10,
+											top_left_loc.y + y + square_size / 10,
+											square_size * 0.8,
+											square_size * 0.8
+										);
+
+										ctx.restore();
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// add the grid lines
+			ctx.fillStyle = colors.grid;
+			for (let i = 0; i <= num_squares.x; i++) {
+				ctx.fillRect(
+					top_left_loc.x + i * square_size - LINE_WIDTH / 2,
+					top_left_loc.y,
+					LINE_WIDTH,
+					square_size * num_squares.y
+				);
+			}
+
+			for (let i = 0; i <= num_squares.y; i++) {
+				ctx.fillRect(
+					top_left_loc.x,
+					top_left_loc.y + i * square_size - LINE_WIDTH / 2,
+					square_size * num_squares.x,
+					LINE_WIDTH
+				);
+			}
+		
+
+			// draw selected square
+			if (selected_square) {
+				ctx.lineWidth = 5;
+				ctx.strokeStyle = colors.selection;
+				ctx.beginPath();
+				ctx.rect(
+					top_left_loc.x + selected_square.c * square_size,
+					top_left_loc.y + selected_square.r * square_size,
+					square_size,
+					square_size
+				);
+				ctx.stroke();
+
+				if (distance_metric != 'none') {
+				
+					// Find the user's avatar position
+					let userAvatarPosition = null;
+					for (let i = 0; i < num_squares.y; i++) {
+						for (let j = 0; j < num_squares.x; j++) {
+							if (board[i][j] && board[i][j].type === 'avatar' && board[i][j].data === '{{user.user_id}}') {
+								userAvatarPosition = { r: i, c: j };
+								break;
+							}
+						}
+						if (userAvatarPosition) break;
+					}
+
+					// If the user's avatar is placed, calculate the distance
+					if (userAvatarPosition) {
+						const diffX = Math.abs(selected_square.c - userAvatarPosition.c);
+						const diffY = Math.abs(selected_square.r - userAvatarPosition.r);
+
+						let dist;
+						if (distance_metric === 'L1') {
+							dist = diffX + diffY;
+						} else if (distance_metric === 'L2') {
+							dist = Math.hypot(diffX, diffY);
+						} else if (distance_metric === 'Li') {
+							dist = Math.max(diffX, diffY);
+						}
+
+						dist *= distance_multiplier;
+
+						// Draw the distance indicator
+						ctx.fillStyle = colors['selection'];
+						ctx.font = `20px Arial`;
+						ctx.textAlign = "center";
+						ctx.textBaseline = "bottom";
+						ctx.fillText(
+							dist.toFixed(2),
+							top_left_loc.x + selected_square.c * square_size + square_size / 2,
+							top_left_loc.y + selected_square.r * square_size - square_size / 20
+						);
+					}
+				}
+			}
+
+		
+
+		}
+
+		
+
+
+	</script>
+
+</html>

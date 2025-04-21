@@ -1,0 +1,232 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- <meta http-equiv="refresh" content="1"> -->
+    <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+
+    <title>All Users and Boards</title>
+
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- socketIO -->
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
+
+    <!-- Prevent caching -->
+    <meta http-equiv="cache-control" content="max-age=0"/>
+    <meta http-equiv="cache-control" content="no-cache"/>
+    <meta http-equiv="expires" content="0"/>
+    <meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT"/>
+    <meta http-equiv="pragma" content="no-cache"/>
+
+    <style>
+        .grid-table {
+            table-layout: fixed;
+            border-collapse: collapse;
+        }
+
+        .grid-item {
+            width: 20px;
+            height: 20px;
+            padding: 0;
+            margin: 0;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+    
+    </style>
+</head>
+<body>
+    <div class="container-fluid my-4">
+        <h1 class="text-center mb-4">All Data</h1>
+
+        {{ s }}
+
+        <h3>Users</h3>
+        <table class="table table-sm table-bordered grid-table">
+            <thead class="table-dark">
+                <tr>
+                    <th scope="col">Avatar</th>
+                    <th scope="col">Id</th>
+                    <th scope="col">Username</th>
+                    <th scope="col">Owned Boards</th>
+                    <th scope="col">Joined Boards</th>
+                    <th scope="col">Current Board</th>
+                    <th scope="col">Tokens</th>
+
+                </tr>
+            </thead>
+            <tbody>
+              {% for user in users %}
+              <tr {% if s.userid == user.user_id %} class="table-primary" {% endif %}>
+              	<td>
+                    <img src="{{user.avatar.get_url()}}" alt="Avatar" class="img-fluid rounded-circle" style="width: 50px; height: 50px;">
+                </td>
+                <td>{{ user.username }}</td>
+                <td>{{ user.user_id }}</td>
+                <td>
+                	<ul>
+                      {% for board in user.boards_owned %}
+                      <li>{{ board.name }}</li>
+                      {% endfor %}
+                  </ul>
+                </td>  
+                <td>
+                	<ul>
+                      {% for board in user.joined_boards %}
+                      <li>{{ board.name }}</li>
+                      {% endfor %}
+                  </ul>
+                </td>  
+                <td>
+                    {{ user.current_board.name }}
+                </td>
+                <td>
+                    {% for token in user.tokens %}
+                    <img src="{{token.image.get_url()}}" alt="Avatar" class="img-fluid" style="width: 50px; height: 50px;">
+                    {% endfor %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+        </table>
+
+        <h3>Boards</h3>
+        <table class="table table-striped table-bordered">
+            <thead class="table-dark">
+                <tr>
+                    <th scope="col">Board Name</th>
+                    <th scope="col">Owner</th>
+                    <th scope="col">Current Users</th>
+                    <th scope="col">Members</th>
+                    <th scope="col">Grid Data</th>
+                    <th scope="col">Maps</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for board in boards %}
+                <tr>
+                    <td><a href="/board/{{board.board_id}}" target="_blank">{{ board.name }}</a></td>
+                    <td>
+                        <strong>{{ board.owner.username }}</strong><br>
+                        <p class="light">{{ board.owner.user_id }}</p>
+                    </td>
+                    <td>
+                      <ul>
+                          {% for user in board.current_users %}
+                          <li>{{ user.username }}</li>
+                          {% endfor %}
+                      </ul>
+                    </td>
+                    <td>
+                        <ul>
+                            {% for user in board.members %}
+                            <li>{{ user.username }}</li>
+                            {% endfor %}
+                        </ul>
+                      </td>
+                    <td style="font-family: monospace">
+                        <table class="grid-table table-sm table-bordered">
+                            {% for row in board.grid_data %}
+                                <tr>
+                                    {% for el in row %}
+                                    <td>
+                                        {{ el }}
+                                        <!-- <div class="grid-item" onclick='alert(JSON.stringify({{el|tojson}}))'>
+                                            {% if el['type'] == "avatar" %}
+                                            <img class="img-fluid rounded-circle" src="/image/{{el['image_id']}}" alt="Avatar">
+                                            {% elif el['type'] == 'token' %}
+                                            <img class="img-fluid" src="/image/{{el['image_id']}}" alt="Token">
+                                            {% endif %}
+                                        </div> -->
+                                    </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </table>
+                    </td>
+                    <td>
+                        {% for map in board.maps %}
+                            <img src="/image/{{map['image_id']}}" class="img-fluid" style="max-width: 200px;">
+                            <p>{{map}}</p>
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+
+        <h3>Tokens</h3>
+        <table class="table table-striped table-bordered">
+            <thead class="table-dark">
+                <tr>
+                    <th scope="col">Image</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">ID</th>
+                    <th scole="col">Owner</th>
+                    <th scole="col">Key</th>
+                    <th scole="col">Size</th>
+                </tr>
+            </thead>
+            <tbody>
+              {% for token in tokens %}
+              <tr>
+                <td>
+                    <a href="{{token.image.get_url()}}" target="_blank">
+                        <img src="{{token.image.get_url()}}" alt="Token" class="img-fluid" style="width: 50px; height: 50px;">
+                    </a>
+                </td>
+                <td>{{ token.name }}</td>
+                <td>{{ token.token_id }}</td>
+                <td>{{ token.owner.username }}</td>
+                <td>{{ token.key }}</td>
+                <td>{{ token.size }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+        </table>
+
+
+        <h3>Images</h3>
+        <table class="table table-sm table-bordered grid-table">
+            <thead class="table-dark">
+                <tr>
+                    <th scope="col">Image</th>
+                    <th scope="col">Owner</th>
+                </tr>
+            </thead>
+            <tbody>
+              {% for image in images %}
+              <tr>
+                <td>
+                    <a href="{{image.get_url()}}" target="_blank">
+                        <img src="{{image.get_url()}}" alt="Image" class="img-fluid" style="width: 50px; height: 50px;">
+                    </a>
+                </td>
+                <td>{{ image.owner.username }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+        </table>
+
+</div>
+
+    <script>
+        var socket = io({transports: ['websocket']});
+
+        socket.on('connect', function() {
+          console.log('connected to socketIO');
+          socket.emit('join', { board_id: 'admin' });
+        });
+
+        // changes
+        socket.on('refresh', function(msg) {
+          location.reload();
+        });
+    </script>
+</body>
+</html>

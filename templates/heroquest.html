@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en" class="h-100">
+  <head>
+    <title>Board Mask</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="">
+    <meta name="keywords" content="">
+
+    <!-- do not cache this page -->
+    <meta http-equiv="cache-control" content="max-age=0"/>
+    <meta http-equiv="cache-control" content="no-cache"/>
+    <meta http-equiv="expires" content="0"/>
+    <meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT"/>
+    <meta http-equiv="pragma" content="no-cache"/>
+
+
+    <!-- Bootstrap -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+		<style>
+
+			html, body {
+			  height: 100%;
+			  overflow: hidden;
+			  margin: 0;
+			  padding: 0;
+			}
+
+
+			html {
+				min-width: 150px;
+			}
+
+			body {
+				color: lightgrey;
+			  margin: 0;
+			  padding: 0;
+			}
+
+			canvas {
+				display: block;
+				width: 100vw;
+				height: 100vh;
+				background-color: black;
+			}
+
+			p {
+				font-size: 12pt;
+			}
+
+			button {
+				margin-bottom: 10px !important;
+			}
+
+			#tools-toggle {
+				opacity: 0.25;
+				transition: opacity 0.4s ease;
+			}
+
+			#tools-toggle:hover {
+		    opacity: 1;
+		    transition: opacity 0.4s ease;
+		  }
+
+
+		</style>
+	</head>
+	<body>
+		<canvas id="display">
+			HTML Canvas element is not supported on your device and/or borwser.
+		</canvas>
+		<!-- Floating Button -->
+		<button id="tools-toggle" class="btn position-fixed bottom-0 start-0 m-1" style="color: white">
+		  <i class="bi bi-gear"></i>
+		</button>
+
+		<div id="tools-popover" class="position-fixed bottom-0 start-0 m-3 p-3 bg-dark text-light border rounded shadow-lg" style="display: none; z-index: 1050; width: 300px;">
+		  <div class="d-flex justify-content-between align-items-center mb-2">
+		    <h3>Settings</h3>
+		    <button class="btn-close btn-close-white btn-sm" onclick="document.getElementById('tools-popover').style.display = 'none'"></button>
+		  </div>
+		  <table class="table table-borderless text-light mb-0 small">
+		    <tr>
+		      <th class="text-end">Zoom</th>
+		      <td class="text-start">
+		        <input type="range" value="0.75" min="0.01" max="4" step="0.01" oninput="change_zoom(this.value)">
+		      </td>
+		    </tr>
+		    <tr>
+		      <th class="text-end">Grid Color</th>
+		      <td class="text-start">
+		        <input type="color" value="#ffffff" oninput="update_grid_color(this.value);" class="form-control form-control-color" style="width: 100%">
+		      </td>
+		    </tr>
+		    <tr>
+		      <th class="text-end">Square Color</th>
+		      <td class="text-start">
+		        <input type="color" value="#ffffff" oninput="update_cell_color(this.value);" class="form-control form-control-color" style="width: 100%">
+		      </td>
+		    </tr>
+		    <tr>
+		      <th class="text-end">Columns</th>
+		      <td class="text-start">
+		        <div class="btn-group w-100">
+		          <button class="btn btn-light btn-sm" onclick="change_num_squares('x', -1)">-1</button>
+		          <button class="btn btn-light btn-sm" onclick="change_num_squares('x', 1)">+1</button>
+		        </div>
+		      </td>
+		    </tr>
+		    <tr>
+		      <th class="text-end">Rows</th>
+		      <td class="text-start">
+		        <div class="btn-group w-100">
+		          <button class="btn btn-light btn-sm" onclick="change_num_squares('y', -1)">-1</button>
+		          <button class="btn btn-light btn-sm" onclick="change_num_squares('y', 1)">+1</button>
+		        </div>
+		      </td>
+		    </tr>
+		    <tr>
+		      <td colspan="2">
+		        <button class="btn btn-danger w-100 mt-2" onclick="reset()">Reset</button>
+		      </td>
+		    </tr>
+		  </table>
+		</div>
+
+	</body>
+	<script>
+
+		const canvas = document.getElementById("display");
+		const ctx = canvas.getContext("2d");
+
+
+		const LINE_WIDTH = 1; // works best if this is even
+		
+		var top_left_loc = {
+			x: canvas.width / 8,
+			y: canvas.height / 8
+		};
+		var num_squares = {x: 26, y: 19};
+		var zoom = 0.75; // this is the proportion of the canvas width that the board should be
+
+
+		var square_size = zoom * canvas.width / num_squares.x;
+
+		var board = Array(num_squares.x).fill([]);
+
+		var cell_color = 'white';
+		var grid_color = '#545454';
+
+		function reset() {
+			board = [];
+			for (let i = 0; i < num_squares.y; i++) {
+				board[i] = [];
+				for (let j = 0; j < num_squares.x; j++) {
+					board[i][j] = 0;
+				}
+			}
+			update_display();
+		}
+
+		function update_cell_color(c) {
+			cell_color = c;
+			update_display();
+		}
+
+		function update_grid_color(c) {
+			grid_color = c;
+			update_display();
+		}
+
+		function change_num_squares(ax, amount) {
+			if (num_squares[ax] + amount > 0) {
+				num_squares[ax] += amount;
+				square_size = zoom * canvas.width / num_squares.x;
+				reset();
+			}
+		}
+
+		function change_zoom(val) {
+			zoom = val;
+			square_size = zoom * canvas.width / num_squares.x;
+			update_display();
+		}
+
+		function toggle(r, c) {
+			board[r][c] = 1 - board[r][c];
+			update_display();
+		}
+
+		function set_canvas_size() {
+			let ratios = {
+				x: top_left_loc.x / canvas.width,
+				y: top_left_loc.y / canvas.height
+			};
+			let rect = canvas.getBoundingClientRect();
+			canvas.width = rect.width;
+			canvas.height = rect.height;
+			top_left_loc = {
+				x: canvas.width * ratios.x,
+				y: canvas.height * ratios.y
+			};
+			square_size = zoom * canvas.width / num_squares.x;
+			update_display();
+		}
+
+
+		function update_display() {
+			// clear the display
+			ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+			// // draw border
+			// ctx.strokeStyle = "white";
+			// ctx.beginPath();
+			// ctx.rect(
+			// 	top_left_loc.x,
+			// 	top_left_loc.y,
+			// 	square_size * num_squares.x,
+			// 	square_size * num_squares.y
+			// );
+			// ctx.stroke();
+
+			// fill squares
+			ctx.fillStyle = cell_color;
+			for (let i = 0; i < num_squares.y; i++) {
+				for (let j = 0; j < num_squares.x; j++) {
+					if (board[i][j] === 1) {
+						let x = j * square_size;
+						let y = i * square_size;
+						ctx.fillRect(
+							top_left_loc.x + x,
+							top_left_loc.y + y,
+							square_size,
+							square_size
+						);
+					}
+				}
+			}
+
+			// add the grid lines
+			ctx.fillStyle = grid_color;
+			for (let i = 0; i <= num_squares.x; i++) {
+				ctx.fillRect(
+					top_left_loc.x + i * square_size - LINE_WIDTH / 2,
+					top_left_loc.y,
+					LINE_WIDTH,
+					square_size * num_squares.y
+				);
+			}
+
+			for (let i = 0; i <= num_squares.y; i++) {
+				ctx.fillRect(
+					top_left_loc.x,
+					top_left_loc.y + i * square_size - LINE_WIDTH / 2,
+					square_size * num_squares.x,
+					LINE_WIDTH
+				);
+			}
+		}
+
+
+
+		function handleClick(e) {
+			var rect = canvas.getBoundingClientRect();
+			let c = Math.floor((e.clientX - rect.left - top_left_loc.x) / square_size);
+			let r = Math.floor((e.clientY - rect.top - top_left_loc.y) / square_size);
+			if (r >= 0 && r < num_squares.y && c >= 0 && c < num_squares.x) {
+				toggle(r, c);
+			}
+		};
+
+		window.onresize = (e) => {
+			set_canvas_size();
+		};
+
+
+		document.body.onload = (e) => {
+			set_canvas_size();
+			reset();
+		}
+
+
+		var isDragging = false;
+		let last_top_left_loc;
+		let dragStart = { x: 0, y: 0 };
+		let offset = { x: 0, y: 0 };
+
+		canvas.onmousedown = (e) => {
+			offset = { x: 0, y: 0 };
+			last_top_left_loc = JSON.parse(JSON.stringify(top_left_loc));
+		  isDragging = true;
+		  dragStart.x = e.clientX - offset.x;
+		  dragStart.y = e.clientY - offset.y;
+		};
+
+		canvas.onmousemove = (e) => {
+		  if (!isDragging) return;
+		  offset.x = (e.clientX - dragStart.x);
+		  offset.y = (e.clientY - dragStart.y);
+		  top_left_loc.x = last_top_left_loc.x + offset.x;
+		  top_left_loc.y = last_top_left_loc.y + offset.y;
+		  update_display();
+		};
+
+		canvas.onmouseup = (e) => {
+		  const totalMove = Math.hypot(offset.x, offset.y);
+		  if (totalMove < 2) {
+		    handleClick(e);
+		  }
+		  isDragging = false;
+		};
+
+		canvas.onmouseleave = (e) => {
+		  isDragging = false;
+		};
+
+		document.getElementById("tools-toggle").addEventListener("click", () => {
+		    const popover = document.getElementById("tools-popover");
+		    popover.style.display = popover.style.display === "none" ? "block" : "none";
+		  }
+		);
+
+	</script>
+
+</html>
