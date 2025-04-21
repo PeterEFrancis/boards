@@ -1314,7 +1314,7 @@
 					let userAvatarPosition = null;
 					for (let i = 0; i < num_squares.y; i++) {
 						for (let j = 0; j < num_squares.x; j++) {
-							if (board[i][j] && board[i][j].type === 'avatar' && board[i][j].data === '{{user.user_id}}') {
+							if (board[i][j] && board[i][j].type === 'avatar' && board[i][j].id === '{{user.user_id}}') {
 								userAvatarPosition = { r: i, c: j };
 								break;
 							}
