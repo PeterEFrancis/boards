@@ -9,7 +9,8 @@
 
 #### Nice
 
-- [ ] add mask layer
+- [ ] change mask so that the grid data given to user is blocked per square by mask
+- [ ] add toggle all mask button
 - [ ] remove image file when not used (avatar change, token change, map delete)
 - [ ] only have updates for owner panel in owner board page
 - [ ] "unique" option for tokens to behave like avatars when placed
@@ -21,6 +22,7 @@
 - [ ] shift+num to change size of token on board
 - [X] save top-left and zoom data in local storage for nice refresh
 - [ ] leave board
+
 
 
 #### Long Term

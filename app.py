@@ -193,6 +193,12 @@ class ImageFile(db.Model):
     
 
 
+def get(thing, key):
+    if thing is None:
+        return None
+    if key in thing:
+        return thing[key]
+    return None
 
 
 class Board(db.Model):
@@ -235,21 +241,33 @@ class Board(db.Model):
     #     self.grid_data = data
     #     db.session.commit()
 
-    def set_square(self, square, grid_data):
+    def set_square(self, square, content):
         changes = []
-        if grid_data is not None and grid_data['type'] == 'avatar':
+
+        if get(content, 'type') == 'avatar':
             for r in range(len(self.grid_data)):
                 for c in range(len(self.grid_data[r])):
-                    if self.grid_data[r][c] is not None:
-                        if self.grid_data[r][c]['type'] == 'avatar' and self.grid_data[r][c]['id'] == grid_data['id']:
-                            self.grid_data[r][c] = None
-                            changes.append([{'r':r,'c':c}, None])
-        self.grid_data[square['r']][square['c']] = grid_data
-        changes.append([square, grid_data])
-        flag_modified(self, "grid_data")
+                    if get(self.grid_data[r][c], 'type') == 'avatar' and get(self.grid_data[r][c], 'id') == get(content, 'id'):
+                        del self.grid_data[r][c]['type']
+                        del self.grid_data[r][c]['id']
+                        changes.append((r, c))
         
+        r = square['r']
+        c = square['c']
+        if self.grid_data[r][c] is None:
+            self.grid_data[r][c] = {}
+        if content is None:
+            if get(self.grid_data[r][c], 'type') is not None and get(self.grid_data[r][c], 'id') is not None:
+                del self.grid_data[r][c]['type']
+                del self.grid_data[r][c]['id']
+        else:
+            for key in content:
+                self.grid_data[square['r']][square['c']][key] = content[key]
+        
+        changes.append((square['r'], square['c']))
+        flag_modified(self, "grid_data")
         db.session.commit()
-        return changes
+        return [[{'r':r, 'c':c}, self.grid_data[r][c]] for (r,c) in changes]
         
 
     def get_square(self, square):

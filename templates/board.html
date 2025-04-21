@@ -188,25 +188,31 @@
 								</div>
 				
 								<div class="row">
-									<div class="col-sm-3 mb-3">
+									<div class="col-sm-4 mb-3">
 										<label for="grid-color" class="form-label">Grid</label>
 										<input type="color" id="grid-color" value="#808080" oninput="update_color('grid', this.value);" class="form-control form-control-color w-100">
 									</div>
 				
-									<div class="col-sm-3 mb-3">
+									<div class="col-sm-4 mb-3">
 										<label for="bg-color" class="form-label">Background</label>
 										<input type="color" id="bg-color" value="#000000" oninput="update_color('background', this.value);" class="form-control form-control-color w-100">
 									</div>
 				
-									<div class="col-sm-3 mb-3">
+									<div class="col-sm-4 mb-3">
 										<label for="table-color" class="form-label">Table</label>
 										<input type="color" id="table-color" value="#000000" oninput="update_color('table', this.value);" class="form-control form-control-color w-100">
 									</div>
 				
-									<div class="col-sm-3 mb-3">
+									<div class="col-sm-4 mb-3">
 										<label for="table-color" class="form-label">Selection</label>
 										<input type="color" id="table-color" value="#00FFFF" oninput="update_color('selection', this.value);" class="form-control form-control-color w-100">
 									</div>
+
+									<div class="col-sm-4 mb-3">
+										<label for="table-color" class="form-label">Mask</label>
+										<input type="color" id="table-color" value="#000000" oninput="update_color('mask', this.value);" class="form-control form-control-color w-100">
+									</div>
+
 								</div>
 
 								<div class="mb-3 d-flex align-items-center gap-3">
@@ -217,6 +223,7 @@
 											<option value="L1">L1 (Manhattan)</option>
 											<option value="L2">L2 (Euclidean)</option>
 											<option value="Li">L&infin; (Chebyshev)</option>
+											<option value="box">Box Counting</option>
 										</select>
 									</div>
 									<div class="w-50">
@@ -237,6 +244,16 @@
 						</h2>
 						<div id="collapseTwo" class="accordion-collapse collapse show" aria-labelledby="headingTwo" data-bs-parent="#accordionExample">
 							<div class="accordion-body">
+								<!-- <ul class="list-unstyled">
+									<li id="map-select-li-064d7f5b-89f9-43ed-99cd-b30b53be1a8c" class="mb-2">
+										<div class="d-flex map-button-wrapper align-items-stretch position-relative">
+											<button class="main-btn btn flex-grow-1 d-flex align-items-center gap-3 btn-outline-primary">
+												<i class="bi bi-eye" id="mask-eye-icon" style="width: 20px; visibility: visible;"></i>
+												<span class="label-text">Mask</span>
+											</button>
+										</div>
+									</li>
+								</ul> -->
 								<label class="form-label">Toggle and Reorder Map Layers</label>
 								<ul id="map-select" class="list-unstyled"></ul>
 								  
@@ -296,16 +313,20 @@
 										<td>Space</td>
 									</tr>
 									<tr>
-										<th>Move selected square</th>
+										<th>Move Selected Square</th>
 										<td>ArrowUp, ArrowDown, ArrowLeft, ArrowRight</td>
 									</tr>
 									<tr>
-										<th>Clear Square</th>
+										<th>Clear Selected Square</th>
 										<td>Delete or Backspace</td>
 									</tr>
 									<tr>
 										<th>Toggle Control Panel</th>
 										<td>S</td>
+									</tr>
+									<tr>
+										<th>Toggle Mask on Selected Square</th>
+										<td>M</td>
 									</tr>
 								</table>
 								<hr class="bg-light">
@@ -352,7 +373,8 @@
 			'grid': '#808080',
 			'background': '#000000',
 			'table': '#000000',
-			'selection': '#00FFFF'
+			'selection': '#00FFFF',
+			'mask': '#000000'
 		}
 		var map_opacity = 1;
 		var distance_metric = 'none';
@@ -533,7 +555,7 @@
 				if (!selected_square) return;
 
 				for (let token_id in icons['token']) {
-					if (e.code === 'Key' + icons['token'][token_id].key) {
+					if (e.code === 'Key' + icons['token'][token_id].key && document.activeElement === document.body) {
 						e.preventDefault();
 						set_square(selected_square, {'id':token_id, 'type':'token'});
 						break;
@@ -618,6 +640,15 @@
 						const bsOffcanvas = bootstrap.Offcanvas.getOrCreateInstance(offcanvasEl);
 						bsOffcanvas.toggle();
 					}
+				}
+
+				if (e.code === 'KeyM' && document.activeElement === document.body) {
+					e.preventDefault();
+					
+					if (!selected_square) return;
+
+					toggle_mask(selected_square)
+					
 				}
 
 			}
@@ -1000,6 +1031,9 @@
 					x: board[0].length,
 					y: board.length
 				};
+				zoom = num_squares.x * square_size / canvas.width;
+				set_zoom(zoom);
+
 				update_display();
 				
 			});
@@ -1047,7 +1081,6 @@
 			socket.on('delete map', function(msg) {
 				console.log('socketio: delete map');
 				maps = maps.filter(map => map.image_id != msg.image_id);
-				console.log(maps);
 				document.getElementById('map-select-li-' + msg.image_id).remove();
 				delete map_images[msg.image_id];
 				update_display();
@@ -1137,7 +1170,6 @@
 			);
 		}
 
-
 		function set_square(square, content) {
 			close_menu();
 			navigator.sendBeacon(
@@ -1151,6 +1183,12 @@
 			);
 		}
 
+		function toggle_mask(square) {
+			let content = board[square.r][square.c] || {};
+			content.mask = !content.mask;
+			set_square(square, content);
+		}
+
 
 		// function leave() {
 		// 	navigator.sendBeacon("/leave");
@@ -1162,6 +1200,31 @@
 
 
 
+
+
+
+
+
+
+
+		function gcd(a, b) {
+			if (!b) {
+				return Math.abs(a);
+			}
+			return gcd(b, a % b);
+		}
+
+		function box_counting_metrix(x, y) {
+			let count = 0;
+			for (a = 0; a < x; a++) {
+				for (b = 0; b < y; b++) {
+					if (y / x === (2 * a - 1)/(2 * b - 1)) {
+						count++;
+					}
+				}
+			}
+			return x + y - count;
+		}
 
 
 
@@ -1191,16 +1254,25 @@
 			for (let i = maps.length - 1; i >= 0; i--) {
 				if (maps[i].visible) {
 					ctx.drawImage(
-					map_images[maps[i].image_id],
-					top_left_loc.x,
-					top_left_loc.y,
-					square_size * num_squares.x,
-					square_size * num_squares.y
+						map_images[maps[i].image_id],
+						top_left_loc.x,
+						top_left_loc.y,
+						square_size * num_squares.x,
+						square_size * num_squares.y
 					);
 				}
 			}
 			
 			ctx.globalAlpha = 1; 
+
+
+			// mask
+			ctx.fillStyle = colors.mask;
+			for (let i = 0; i < num_squares.y; i++) {
+				for (let j = 0; j < num_squares.x; j++) {
+					
+				}
+			}
 
 
 			// fill squares
@@ -1211,61 +1283,54 @@
 						if (board[i][j] != null) {
 							let x = j * square_size;
 							let y = i * square_size;
-							if (board[i][j].type == type) {
-								if (board[i][j].type == "color") {
-									ctx.fillStyle = board[i][j].data;
-									ctx.fillRect(
-										top_left_loc.x + x,
-										top_left_loc.y + y,
-										square_size,
-										square_size
-									);
-								} else if (board[i][j].type == "text") {
-									ctx.fillStyle = "white";
-									ctx.font = "100px serif";
-								ctx.textBaseline = "middle";
-									ctx.textAlign = "center";
-									ctx.fillText(
-										board[i][j].data,
-										top_left_loc.x + x + square_size / 2,
-										top_left_loc.y + y + square_size / 2,
-										square_size
-									);
-								} else if (board[i][j].type == 'token') {
-									let img = icon_images[board[i][j].type][board[i][j].id];
-									let size = icons[board[i][j].type][board[i][j].id].size;
-									// size *= board[i][j].size || 1;
-									if (img?.complete) {
-										ctx.drawImage(
-											img,
-											top_left_loc.x + x - square_size * (size - 1) / 2,
-											top_left_loc.y + y - square_size * (size - 1) / 2,
-											square_size * size,
-											square_size * size
-										);
+							if (board[i][j] && board[i][j].mask) {
+								ctx.fillStyle = colors.mask;
+								ctx.fillRect(
+									top_left_loc.x + x,
+									top_left_loc.y + y,
+									square_size,
+									square_size
+								);
+							} else {
+
+								if (board[i][j].type == type) {
+									if (board[i][j].type == 'token') {
+										let img = icon_images[board[i][j].type][board[i][j].id];
+										let size = icons[board[i][j].type][board[i][j].id].size;
+										// size *= board[i][j].size || 1;
+										if (img?.complete) {
+											ctx.drawImage(
+												img,
+												top_left_loc.x + x - square_size * (size - 1) / 2,
+												top_left_loc.y + y - square_size * (size - 1) / 2,
+												square_size * size,
+												square_size * size
+											);
+										}
 									}
-								} else if (board[i][j].type == "avatar") {
-									let img = icon_images[board[i][j].type][board[i][j].id];
-									if (img?.complete) {
-										const centerX = top_left_loc.x + x + square_size / 2;
-										const centerY = top_left_loc.y + y + square_size / 2;
-										const radius = square_size / 2 - square_size / 10;
+									else if (board[i][j].type == "avatar") {
+										let img = icon_images[board[i][j].type][board[i][j].id];
+										if (img?.complete) {
+											const centerX = top_left_loc.x + x + square_size / 2;
+											const centerY = top_left_loc.y + y + square_size / 2;
+											const radius = square_size / 2 - square_size / 10;
 
-										ctx.save();
-										ctx.beginPath();
-										ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-										ctx.closePath();
-										ctx.clip(); // Set the clip to the circular path
+											ctx.save();
+											ctx.beginPath();
+											ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+											ctx.closePath();
+											ctx.clip(); // Set the clip to the circular path
 
-										ctx.drawImage(
-											img,
-											top_left_loc.x + x + square_size / 10,
-											top_left_loc.y + y + square_size / 10,
-											square_size * 0.8,
-											square_size * 0.8
-										);
+											ctx.drawImage(
+												img,
+												top_left_loc.x + x + square_size / 10,
+												top_left_loc.y + y + square_size / 10,
+												square_size * 0.8,
+												square_size * 0.8
+											);
 
-										ctx.restore();
+											ctx.restore();
+										}
 									}
 								}
 							}
@@ -1334,6 +1399,8 @@
 							dist = Math.hypot(diffX, diffY);
 						} else if (distance_metric === 'Li') {
 							dist = Math.max(diffX, diffY);
+						} else if (distance_metric == 'box') {
+							dist = box_counting_metrix(diffX, diffY);
 						}
 
 						dist *= distance_multiplier;
