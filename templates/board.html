@@ -116,6 +116,11 @@
 				margin-right: 5px;
 			}
 
+			
+			#map-select img {
+				border: 1px solid rgb(193, 193, 193);
+				border-radius: 5px;
+			}
 
 			#map-select .map-button-wrapper {
 				position: relative;
@@ -236,7 +241,8 @@
 							</div>
 						</div>
 					</div>
-					<div {% if not is_owner %} hidden {% endif %} class="accordion-item bg-dark text-light">
+					
+					<div id="map-controls" {% if not is_owner and not board.users_can_edit %} hidden {% endif %} class="accordion-item bg-dark text-light">
 						<h2 class="accordion-header" id="headingTwo">
 							<button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo" aria-expanded="false" aria-controls="collapseTwo">
 								Map
@@ -261,11 +267,11 @@
 								<hr class="bg-light">
 								<form id="upload_map_form" class="mb-3">
 									<label for="image" class="form-label">Upload Map</label>
-									<div class="d-flex align-items-center gap-3">
-										<input type="hidden" name="board_method" value="upload_map" required>
-										<input type="hidden" name="board_id" value="{{board.board_id}}" required>
+									<input type="hidden" name="board_method" value="upload_map" required>
+									<input type="hidden" name="board_id" value="{{board.board_id}}" required>
+									<input type="file" class="form-control" name="image" required>
+									<div class="d-flex align-items-column gap-3 mt-3">
 										<input type="text" placeholder="Name" class="form-control" name="name" required>
-										<input type="file" class="form-control" name="image" required>
 										<button type="submit" class="btn btn-outline-primary">Upload</button>
 									</div>
 								</form>
@@ -291,6 +297,7 @@
 							</div>
 						</div>
 					</div>
+
 					<div class="accordion-item bg-dark text-light">
 						<h2 class="accordion-header" id="headingThree">
 							<button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThree" aria-expanded="false" aria-controls="collapseThree">
@@ -324,7 +331,7 @@
 										<th>Toggle Control Panel</th>
 										<td>S</td>
 									</tr>
-									<tr>
+									<tr id="mask-info-tr" {% if not is_owner and not board.users_can_edit %} hidden {% endif %}>
 										<th>Toggle Mask on Selected Square</th>
 										<td>M</td>
 									</tr>
@@ -963,6 +970,30 @@
 				console.log('connected to socketIO');
 				socket.emit('join', { board_id: '{{ board.board_id}}' });
 			});
+			socket.on('disconnect', function() {
+				console.log('disconnected from socketIO');
+			});
+			socket.on('connect_error', function(err) {
+				console.log('socket: connect error');
+				console.log(err);
+			});
+			socket.on('connect_timeout', function(err) {
+				console.log('socket: connect timeout');
+				console.log(err);
+			});
+			socket.on('reconnect', function() {
+				console.log('socket: reconnected');
+			});
+			socket.on('reconnect_attempt', function() {
+				console.log('socket: reconnect attempt');
+			});
+			socket.on('reconnect_error', function(err) {
+				console.log('socket: reconnect error');
+				console.log(err);
+			});
+			socket.on('reconnect_failed', function() {
+				console.log('socket: reconnect failed');
+			});	
 
 
 			// changes
@@ -1107,6 +1138,12 @@
 				
 			})
 
+			socket.on('set users can edit', function(msg) {
+				console.log('socketio: set users can edit');
+				document.getElementById('map-controls').hidden = !msg.users_can_edit && !JSON.parse('{{ is_owner|tojson }}');
+				document.getElementById('mask-info-tr').hidden = !msg.users_can_edit && !JSON.parse('{{ is_owner|tojson }}');
+			});
+
 		};
 
 		function areMapsEqual(a, b) {
@@ -1152,7 +1189,8 @@
 						'board_method': 'reset'
 					})],
 					{type: 'application/json'}
-				));
+				)
+			);
 		}
 
 		function change_num_squares(ax, num) {
@@ -1184,9 +1222,14 @@
 		}
 
 		function toggle_mask(square) {
-			let content = board[square.r][square.c] || {};
-			content.mask = !content.mask;
-			set_square(square, content);
+			navigator.sendBeacon(
+				'/board_access',
+				new Blob([JSON.stringify({
+					'board_method': 'toggle_mask_square',
+					'board_id': "{{board.board_id}}",
+					'square': square
+				})], { type: 'application/json' })
+			);
 		}
 
 

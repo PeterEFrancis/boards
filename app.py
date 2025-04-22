@@ -210,11 +210,10 @@ class Board(db.Model):
     owner = relationship("User", back_populates="boards_owned", foreign_keys=[owner_id])
     grid_data = db.Column(MutableList.as_mutable(JSON), nullable=False)
     maps = db.Column(JSON, nullable=True)  # Store a list of JSON objects here
-    members = db.relationship(
-        "User",
-        secondary=user_joined_boards,
-        back_populates="joined_boards"
-    )
+    members = db.relationship("User", secondary=user_joined_boards, back_populates="joined_boards")
+    users_can_edit = db.Column(db.Boolean, default=False)
+
+
 
     def __init__(self, name, owner):
         self.name = name
@@ -353,6 +352,28 @@ class Board(db.Model):
                 self.maps.remove(map)
         flag_modified(self, 'maps')
         db.session.commit()
+
+    def set_users_can_edit(self, can_edit):
+        self.users_can_edit = can_edit
+        db.session.commit()
+
+    def has_mask(self, square):
+        return self.grid_data[square['r']][square['c']] is not None and 'mask' in self.grid_data[square['r']][square['c']] and self.grid_data[square['r']][square['c']]['mask']
+    
+    def touch(self, square):
+        if self.grid_data[square['r']][square['c']] is None:
+            self.grid_data[square['r']][square['c']] = {}
+        flag_modified(self, "grid_data")
+        db.session.commit()
+
+    def toggle_mask_square(self, square):
+        self.touch(square)
+        if 'mask' not in self.grid_data[square['r']][square['c']]:
+            self.grid_data[square['r']][square['c']]['mask'] = False
+        self.grid_data[square['r']][square['c']]['mask'] = not self.grid_data[square['r']][square['c']]['mask']
+        flag_modified(self, "grid_data")
+        db.session.commit()
+
 
     def __repr__(self):
         return f'<name: {self.name}, owner: {self.owner.username}>'
@@ -919,71 +940,90 @@ def board_access():
     
     board = get_Board(data['board_id'])
 
+    is_owner = board.owner_id == user.user_id
+    user_privileges = user in board.members and board.users_can_edit
+    can_edit = is_owner or user_privileges
 
-    if data['board_method'] == 'change_name':
-        board.set_name(data['name'])
-    if data['board_method'] == 'upload_map':
+    if data['board_method'] == 'set_square':
+        if board.has_mask(data['square']) and not can_edit:
+            return 'You can\'t edit a masked square', 403
+        changes = board.set_square(data['square'], data['content'])
+        socketio.emit(
+            'update squares',
+            {'changes': changes},
+            room=str(board.board_id)
+        )
+    
+    elif not can_edit:
+        return 'You don\'t have permission to do that', 403
+
+    elif data['board_method'] == 'toggle_mask_square':
+        board.toggle_mask_square(data['square'])
+        socketio.emit(
+            'update squares',
+            {'changes': [[data['square'], board.get_square(data['square'])]]},
+            room=str(board.board_id)
+        )
+    elif data['board_method'] == 'upload_map':
         board.add_map(Image.open(data['image']), data['name'])
         socketio.emit(
             'new map',
             {'map': board.maps[-1]},
             room=str(board.board_id)
         )
-    if data['board_method'] == 'toggle_map_visibility':
+    elif data['board_method'] == 'toggle_map_visibility':
         board.toggle_map_visibility(data['image_id'])
         socketio.emit(
             'toggle visibility',
             {'image_id': data['image_id']},
             room=str(board.board_id)
         )
-    if data['board_method'] == 'reset':
+    elif data['board_method'] == 'reset':
         board.reset()
         socketio.emit(
             'update grid data',
             {'board': board.grid_data},
             room=str(board.board_id)
         )
-    if data['board_method'] == 'change_num_squares':
+    elif data['board_method'] == 'change_num_squares':
         board.change_num_squares(data['axis'], int(data['num']))
         socketio.emit(
             'update grid data',
             {'board': board.grid_data},
             room=str(board.board_id)
         )
-    if data['board_method'] == 'reorder_maps':
+    elif data['board_method'] == 'reorder_maps':
         board.reorder_maps(data['order'])
         socketio.emit(
             'rebuild map select',
             {'maps': board.maps},
             room=str(board.board_id)
         )
-    if data['board_method'] == 'set_square':
-        changes = board.set_square(data['square'], data['content'])
+    
+    elif not is_owner:
+        return 'You don\'t have permission to do that', 403
+
+    elif data['board_method'] == 'set_users_can_edit':
+        board.set_users_can_edit(data['users_can_edit'])
         socketio.emit(
-            'update squares',
-            {'board': board.grid_data,
-             'changes': changes},
+            'set users can edit',
+            {'users_can_edit': data['users_can_edit']},
             room=str(board.board_id)
-        )   
-    if data['board_method'] == 'delete_map':
+        )
+    elif data['board_method'] == 'delete_map':
         board.delete_map(data['image_id'])
         socketio.emit(
             'delete map',
             {'image_id': data['image_id']},
             room=str(board.board_id)
         )
-   
-
+    elif data['board_method'] == 'change_name':
+        board.set_name(data['name'])
+    
 
 
     socketio.emit('refresh', room='admin')
     return redirect(request.referrer or '/')
-
-
-
-
-
-
 
 
 

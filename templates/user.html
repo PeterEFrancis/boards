@@ -97,10 +97,40 @@
 		  </div>
 		</div>
 
-    <!-- Boards Section -->
+    <!-- Boards Sections -->
     <div class="card bg-dark border-light my-5 shadow rounded">
-      <div class="card-header border-light">
-        <h5 class="mb-0">Your Boards</h5>
+      <div class="card-header bg-secondary border-light">
+        <h5 class="mb-0">Joined Boards</h5>
+      </div>
+      <div class="card-body">
+
+
+        <div class="container">
+          <div class="row g-4">
+            {% for board in user.joined_boards %}
+            <div class="col-md-3">
+              <div class="icon-tile">
+                <img src="/map/{{ board.board_id }}" alt="Board Map" class="icon-image">
+
+                <div class="icon-overlay">
+                  <button type="submit" class="btn btn-sm btn-primary" onclick="location.href='/board/{{ board.board_id }}'">View</button>
+                </div>
+              </div>
+
+              <div class="icon-info">
+                <strong>{{ board.name }}</strong>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+      </div>
+    </div>
+    
+    <div class="card bg-dark border-light my-5 shadow rounded">
+      <div class="card-header bg-secondary border-light">
+        <h5 class="mb-0">Owned Boards</h5>
       </div>
       <div class="card-body">
 
@@ -131,19 +161,26 @@
               <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content bg-dark">
                   <div class="modal-header">
-                    <h5 class="modal-title">Edit Board</h5>
+                    <h5 class="modal-title">Edit Board "{{ board.name }}"</h5>
                     <button type="button" class="btn-close btn-close-white"  data-bs-dismiss="modal" aria-label="Close"></button>
                   </div>
                   <div class="modal-body d-flex flex-column gap-3">
 
                     <!-- Name -->
                     <form action="/board_access" method="post" class="d-flex gap-2 align-items-center">
-                      <!-- do this -->
                       <input type="hidden" name="board_id" class="form-control form-control-sm" value="{{ board.board_id }}">
                       <input type="hidden" name="board_method" class="form-control form-control-sm" value="change_name">
-                      <input type="text" name="name" class="form-control form-control-sm" value="{{ board.name }}" placeholder="New Name" required>
+                      <label for="board-name-{{board.board_id}}" class="me-2">Name</label>
+                      <input id="board-name-{{board.board_id}}" type="text" name="name" class="form-control form-control-sm" value="{{ board.name }}" placeholder="New Name" required>
                       <button type="submit" class="btn btn-sm btn-primary">Update</button>
                     </form>
+
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" id="users-can-edit-{{board.board_id}}" onclick="set_user_privileges(this.checked, '{{ board.board_id }}')" {% if board.users_can_edit %}checked{% endif %}>
+                      <label class="form-check-label" for="users-can-edit-{{board.board_id}}">
+                        More player privileges <p class="small text-muted">(Change maps, board size, mask/unmask, etc.).</p>
+                      </label>
+                    </div>
 
                   </div>
                 </div>
@@ -172,7 +209,7 @@
 
     <!-- Tokens Section -->
     <div class="card bg-dark border-light my-5 shadow rounded">
-      <div class="card-header border-light">
+      <div class="card-header bg-secondary border-light">
         <h5 class="mb-0"> Your Tokens</h5>
       </div>
       <div class="card-body">
@@ -276,7 +313,7 @@
 
     <!-- Preferences Section -->
     <div class="card bg-dark border-light my-5 shadow rounded">
-      <div class="card-header border-light">
+      <div class="card-header bg-secondary border-light">
         <h5 class="mb-0">User Preferences</h5>
       </div>
       <div class="card-body">
@@ -311,6 +348,21 @@
   </div>
 </body>
 
-</html>
+<script>
+  function set_user_privileges(checked, board_id) {
+    navigator.sendBeacon(
+      '/board_access',
+      new Blob(
+        [JSON.stringify({
+          'board_id': board_id,
+          'board_method': 'set_users_can_edit',
+          'users_can_edit': checked
+        })],
+        {type: 'application/json'}
+      )
+    );
+  }
+ </script>
 
+</html>
 
