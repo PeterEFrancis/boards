@@ -1,5 +1,6 @@
 from flask import Flask, render_template, url_for, redirect, request, send_from_directory, jsonify, session, Response, g, send_file, abort
 from flask_sqlalchemy import SQLAlchemy
+
 import html
 import time
 import string
@@ -7,6 +8,7 @@ import os
 import datetime
 import json
 import random
+from functools import lru_cache
 
 import io
 
@@ -28,8 +30,11 @@ from base64 import b64encode
 from os import urandom
 
 from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageFile as PILImageFile
+PILImageFile.LOAD_TRUNCATED_IMAGES = True  # Optional, improves robustness
 
 import base64
+
 
 
 app = Flask(__name__)
@@ -101,7 +106,7 @@ def handle_join(data):
 
 
 
-ICON_SIZE = 128
+ICON_SIZE = 64
 
 
 def SHA1(string):
@@ -129,25 +134,59 @@ def generate_default_avatar(username):
 
     return img
 
-def resize_image(image_file):
-    # Open the image file
-    img = Image.open(image_file)
 
-    # Resize the image
-    img = img.resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
-
-    return img
-
+def resize_image(img, dims=[1,1]):
+    return img.thumbnail((ICON_SIZE * dims[0], ICON_SIZE * dims[1]), Image.Resampling.NEAREST)
 
 def img_to_bytes(img):
     img_bytes = io.BytesIO()
-    img.save(img_bytes, format='PNG')
+    img.save(img_bytes, format = img.format or 'PNG')
+    img_bytes.seek(0)  # only needed if passing to Flask
     return img_bytes.getvalue()
 
 
 def get_blank_image():
-    return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    return Image.new("RGB", (1, 1), (0, 0, 0))
 
+
+
+def image_open(data, max_size=(2160, 2160), max_bytes=2**20, min_quality=0, step=5):
+    """
+    Open an image from bytes, resize if needed, and compress to be <= max_bytes.
+    Returns a PIL.Image object (compressed).
+    """
+    if isinstance(data, bytes):
+        data = io.BytesIO(data)
+
+    img = Image.open(data)
+    img_format = img.format or 'JPEG'  # fallback for unknowns
+
+    # Convert to RGB or RGBA based on format
+    if img_format.upper() == "PNG":
+        img = img.convert("RGBA")
+    else:
+        img = img.convert("RGB")
+
+    # Resize to max dimensions
+    img.thumbnail(max_size, Image.NEAREST)
+
+    # Compress to target size
+    quality = 95
+    buffer = io.BytesIO()
+    while quality >= min_quality:
+        buffer.seek(0)
+        buffer.truncate()
+
+        img.save(buffer, format=img_format, quality=quality, optimize=True)
+        if buffer.tell() <= max_bytes:
+            break
+        quality -= step
+
+    buffer.seek(0)
+    compressed_img = Image.open(buffer)
+
+    # Match original mode to avoid surprises
+    return compressed_img
 
 
 #  ____            _             _
@@ -182,15 +221,24 @@ class ImageFile(db.Model):
     owner_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.user_id'), nullable=True)
     owner = relationship("User", back_populates="images", foreign_keys=[owner_id])
     image_bytes = db.Column(db.LargeBinary)
+    name = db.Column(db.Text, nullable=True)
 
-    def __init__(self, owner, image):
-        self.owner = owner
+    def __init__(self, owner, image, name=""):
+        # self.owner = owner
+        self.set_image(image)
+        self.name = name
+
+    def set_image(self, image):
         self.image_bytes = img_to_bytes(image)
+        flag_modified(self, "image_bytes")
         db.session.commit()
 
     def get_url(self):
         return '/image/' + str(self.image_id)
-    
+
+    def to_img(self):
+        return image_open(io.BytesIO(self.image_bytes))
+
 
 
 def get(thing, key):
@@ -212,8 +260,11 @@ class Board(db.Model):
     maps = db.Column(JSON, nullable=True)  # Store a list of JSON objects here
     members = db.relationship("User", secondary=user_joined_boards, back_populates="joined_boards")
     users_can_edit = db.Column(db.Boolean, default=False)
-
-
+    composite_map_id = db.Column(UUID(as_uuid=True), db.ForeignKey('images.image_id'), nullable=False)
+    composite_map = relationship("ImageFile", foreign_keys=[composite_map_id])
+    visible_map_id = db.Column(UUID(as_uuid=True), db.ForeignKey('images.image_id'), nullable=False)
+    visible_map = relationship("ImageFile", foreign_keys=[visible_map_id])
+    
 
     def __init__(self, name, owner):
         self.name = name
@@ -221,8 +272,12 @@ class Board(db.Model):
         self.current_users = []
         self.grid_data = [[None] * 5 for _ in range(5)]
         self.maps = []
+        self.visible_map = ImageFile(owner=self.owner, image=get_blank_image(), name="visible map")
+        self.composite_map = ImageFile(owner=self.owner, image=get_blank_image(), name="composite map")
+        db.session.add(self.visible_map)
+        db.session.commit()
         self.members = []
-        self.add_map(get_blank_image(), name='blank', editable=False)
+
 
     def add_user(self, user):
         if user not in self.current_users:
@@ -267,11 +322,9 @@ class Board(db.Model):
         flag_modified(self, "grid_data")
         db.session.commit()
         return [[{'r':r, 'c':c}, self.grid_data[r][c]] for (r,c) in changes]
-        
 
     def get_square(self, square):
         return self.grid_data[square['r']][square['c']]
-
     
     def add_map(self, image, name=None, editable=True):
         image_file = ImageFile(owner=self.owner, image=image)
@@ -285,25 +338,42 @@ class Board(db.Model):
         })
         flag_modified(self, "maps")
         db.session.commit()
+        self.update_composite_map()
 
-    
-    def get_visible_map(self):
-        for map in self.maps:
-            if map['visible'] and map['editable']:
-                return get_Image(map['image_id'])
-        return get_Image(self.maps[0]['image_id'])
+    def update_composite_map(self):
+        width = len(self.grid_data[0]) * ICON_SIZE
+        height = len(self.grid_data) * ICON_SIZE
+        img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        for map in self.maps[::-1]:
+            if map['visible']:
+                overlay = get_ImageFile(map['image_id']).to_img()
+                overlay = overlay.resize((width, height), Image.Resampling.NEAREST)
+                overlay = overlay.convert("RGBA")
+                img.alpha_composite(overlay, (0, 0))
+        self.composite_map.set_image(img)
+        self.update_visible_map()
+
+
+    def update_visible_map(self):
+        img = self.composite_map.to_img()
+        black_square = Image.new("RGB", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 255))
+        for i in range(len(self.grid_data)):
+            for j in range(len(self.grid_data[0])):
+                if self.has_mask({'r': i, 'c': j}):
+                    img.paste(black_square, (j * ICON_SIZE, i * ICON_SIZE))
+        self.visible_map.set_image(img)
 
     def set_name(self, name):
         self.name = name
         db.session.commit()
 
     def toggle_map_visibility(self, image_id):
-        print(self.maps)
         for i in range(len(self.maps)):
             if self.maps[i]['image_id'] == image_id:
                 self.maps[i]['visible'] = not self.maps[i]['visible']
         flag_modified(self, 'maps')
         db.session.commit()
+        self.update_composite_map()
 
     def reset(self):
         for i in range(len(self.grid_data)):
@@ -339,19 +409,24 @@ class Board(db.Model):
 
         flag_modified(self, 'grid_data')
         db.session.commit()
+        self.update_composite_map()
 
     def reorder_maps(self, order):
         # keep blank map first
         self.maps = sorted(self.maps, key = lambda x: order.index(x['image_id']) if x['image_id'] in order else -1)
         flag_modified(self, 'maps')
         db.session.commit()
+        self.update_composite_map()
 
     def delete_map(self, image_id):
         for map in self.maps:
             if map['image_id'] == image_id:
                 self.maps.remove(map)
         flag_modified(self, 'maps')
+        db.session.delete(get_ImageFile(image_id))
         db.session.commit()
+        self.update_composite_map()
+        
 
     def set_users_can_edit(self, can_edit):
         self.users_can_edit = can_edit
@@ -373,6 +448,10 @@ class Board(db.Model):
         self.grid_data[square['r']][square['c']]['mask'] = not self.grid_data[square['r']][square['c']]['mask']
         flag_modified(self, "grid_data")
         db.session.commit()
+        self.update_visible_map()
+
+    def get_dims(self):
+        return len(self.grid_data[0]), len(self.grid_data)
 
 
     def __repr__(self):
@@ -394,6 +473,7 @@ class Token(db.Model):
         self.name = name
         self.owner = owner
         self.size = 1
+        self.image
         self.set_image(image)
 
     def rename(self, name):
@@ -401,11 +481,14 @@ class Token(db.Model):
         db.session.commit()
 
     def set_image(self, image):
-        image_file = ImageFile(owner=self.owner, image=resize_image(image))
-        db.session.add(image_file)
-        db.session.commit()
-        self.image_id = image_file.image_id
-
+        if self.image:
+            self.image.set_image(image)
+            self.image.name = f"token {self.token_id}"
+        else:
+            image_file = ImageFile(owner=self, image=image, name=f"token")
+            db.session.add(image_file)
+            db.session.commit()
+            self.image_id = image_file.image_id
         db.session.commit()
 
     def set_key(self, key):
@@ -465,12 +548,15 @@ class User(db.Model):
         else:
             real_image = resize_image(image)
         
-        image_file = ImageFile(owner=self, image=real_image)
-        db.session.add(image_file)
-        db.session.commit()
-        self.avatar_id = image_file.image_id
-        self.images.append(image_file)
-
+        if self.avatar:
+            self.avatar.set_image(real_image)
+            self.avatar.name = f"{self.user_id} avatar"
+        else:
+            image_file = ImageFile(owner=self, image=real_image, name="avatar")
+            db.session.add(image_file)
+            db.session.commit()
+            self.avatar_id = image_file.image_id
+            self.images.append(image_file)
         db.session.commit()
 
 
@@ -515,9 +601,9 @@ class User(db.Model):
         return f'<Username: {self.username}, hashed_password: {self.hashed_password}>'
 
 
-    
 
-def get_Image(image_id):
+
+def get_ImageFile(image_id):
     return db.session.get(ImageFile, image_id)
 
 def get_User(username):
@@ -532,36 +618,45 @@ def get_Board(board_id):
 
 
 
-
-
 @app.route('/image/<uuid:image_id>')
 def image(image_id):
-    image = ImageFile.query.get_or_404(image_id)
-    return send_file(
-        io.BytesIO(image.image_bytes),
-        mimetype='image/png'
-    )
+    image_file = ImageFile.query.get_or_404(image_id)
+
+    # Load image from bytes
+    img = Image.open(io.BytesIO(image_file.image_bytes)).convert("RGBA")
+
+    # Save to memory
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+
+    return send_file(buf, mimetype='image/png', max_age=3600)
 
 
 @app.route('/avatar/<uuid:user_id>')
 def avatar(user_id):
     user = User.query.get_or_404(user_id)
     return image(user.avatar_id)
-    # return redirect(user.avatar.get_url())
-
 
 @app.route('/token/<uuid:token_id>')
 def token(token_id):
     token = Token.query.get_or_404(token_id)
     return image(token.image_id)
-    # return redirect(token.image.get_url())
+
 
 @app.route('/map/<uuid:board_id>')
 def map(board_id):
     board = Board.query.get_or_404(board_id)
-    return image(board.get_visible_map().image_id)
-    # return redirect(board.get_visible_map().get_url())
 
+    img = Image.open(io.BytesIO(board.visible_map.image_bytes)).convert("RGB")
+
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG')
+    buf.seek(0)
+
+    print("="*1000)
+
+    return send_file(buf, mimetype='image/jpeg', max_age=3600)
 
 
 
@@ -661,7 +756,7 @@ def update_user():
 
     # Handle avatar update
     if 'avatar' in request.files:
-        user.set_avatar(request.files['avatar'])
+        user.set_avatar(image_open(request.files['avatar']))
         for board in user.joined_boards:
             socketio.emit(
                 'update icon',
@@ -786,7 +881,7 @@ def create_token():
         logout()
         return 'User not found', 404
 
-    token = user.create_token(request.form['name'], request.files['image'])
+    token = user.create_token(request.form['name'], image_open(request.files['image']))
     
     for board in user.joined_boards:
         socketio.emit(
@@ -868,7 +963,7 @@ def edit_token():
             )
     
     if request.form['action'] == 'change_image':
-        token.set_image(request.files['image'])
+        token.set_image(image_open(request.files['image']))
         for board in user.joined_boards:
             socketio.emit(
                 'update icon',
@@ -965,7 +1060,7 @@ def board_access():
             room=str(board.board_id)
         )
     elif data['board_method'] == 'upload_map':
-        board.add_map(Image.open(data['image']), data['name'])
+        board.add_map(image_open(data['image']), data['name'])
         socketio.emit(
             'new map',
             {'map': board.maps[-1]},
@@ -1007,7 +1102,10 @@ def board_access():
         board.set_users_can_edit(data['users_can_edit'])
         socketio.emit(
             'set users can edit',
-            {'users_can_edit': data['users_can_edit']},
+            {
+                'users_can_edit': data['users_can_edit'],
+                'maps': board.maps if data['users_can_edit'] else []
+            },
             room=str(board.board_id)
         )
     elif data['board_method'] == 'delete_map':
@@ -1097,6 +1195,9 @@ def board(board_id):
                     for token in board_user.tokens:
                         icons['token'][str(token.token_id)] = token.export()
                     icons['avatar'][str(board_user.user_id)] = {'name': board_user.username}
+                
+                can_edit = board.owner_id == user.user_id or board.users_can_edit
+
                 return render_template(
                     'board.html',
                     board=board,
@@ -1106,9 +1207,11 @@ def board(board_id):
                         'y':len(board.grid_data)
                     },
                     icons=icons,
-                    maps=board.maps,
-                    is_owner=board.owner_id==user.user_id
+                    maps=board.maps if can_edit else [],
+                    can_edit=can_edit
+                    # is_owner=(board.owner_id == user.user_id)
                 )
+        
 
     return render_template(
         'join.html',

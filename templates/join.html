@@ -44,7 +44,7 @@
 			{% if logged_in %}
 				<div class="row">
 					<div class="col-md-12 text-center">
-						<img src="{{ board.get_visible_map().get_url() }}" alt="Board" class="img-fluid my-5" style="max-width: 300px">
+						<img src="/map/{{ board.board_id }}" alt="Board" class="img-fluid my-5" style="width: 300px">
 						<br> 
 						<button id="join-button" onclick="joinBoard('{{ board.board_id }}')" class="btn btn-lg btn-success">Join</button>
 					</div>

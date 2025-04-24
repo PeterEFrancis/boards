@@ -40,10 +40,11 @@
     </style>
 </head>
 <body>
-    <div class="container-fluid my-4">
+    <div class="container-fluid my-4 ">
         <h1 class="text-center mb-4">All Data</h1>
-
-        {{ s }}
+        <button class="btn btn-sm btn-danger" onclick="location.href='/create'">Create</button>
+        <br><br>
+        <!-- {{ s }} -->
 
         <h3>Users</h3>
         <table class="table table-sm table-bordered grid-table">
@@ -65,8 +66,8 @@
               	<td>
                     <img src="{{user.avatar.get_url()}}" alt="Avatar" class="img-fluid rounded-circle" style="width: 50px; height: 50px;">
                 </td>
-                <td>{{ user.username }}</td>
                 <td>{{ user.user_id }}</td>
+                <td>{{ user.username }}</td>
                 <td>
                 	<ul>
                       {% for board in user.boards_owned %}
@@ -104,6 +105,7 @@
                     <th scope="col">Members</th>
                     <th scope="col">Grid Data</th>
                     <th scope="col">Maps</th>
+                    <th scope="col">Visible Map</th>
                     <th scope="col">Users can Edit</th>
                 </tr>
             </thead>
@@ -113,7 +115,7 @@
                     <td><a href="/board/{{board.board_id}}" target="_blank">{{ board.name }}</a></td>
                     <td>
                         <strong>{{ board.owner.username }}</strong><br>
-                        <p class="light">{{ board.owner.user_id }}</p>
+                        <!-- <p class="light">{{ board.owner.user_id }}</p> -->
                     </td>
                     <td>
                       <ul>
@@ -151,10 +153,11 @@
                     </td>
                     <td>
                         {% for map in board.maps %}
-                            <img src="/image/{{map['image_id']}}" class="img-fluid" style="max-width: 200px;">
+                            <img src="/image/{{map['image_id']}}" class="img-fluid" style="max-width: 50px;">
                             <p>{{map}}</p>
                         {% endfor %}
                     </td>
+                    <td><img class="img-fluid" src="{{board.visible_map.get_url()}}"></td>
                     <td>{{ board.users_can_edit }}</td>
                 </tr>
                 {% endfor %}
@@ -198,7 +201,9 @@
             <thead class="table-dark">
                 <tr>
                     <th scope="col">Image</th>
+                    <th scope="col">ID</th>
                     <th scope="col">Owner</th>
+                    <th scope="col">Name</th>
                 </tr>
             </thead>
             <tbody>
@@ -209,13 +214,15 @@
                         <img src="{{image.get_url()}}" alt="Image" class="img-fluid" style="width: 50px; height: 50px;">
                     </a>
                 </td>
+                <td>{{ image.image_id }}</td>
                 <td>{{ image.owner.username }}</td>
+                <td>{{ image.name }}</td>
               </tr>
               {% endfor %}
             </tbody>
         </table>
 
-</div>
+    </div>
 
     <script>
         var socket = io({transports: ['websocket']});

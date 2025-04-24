@@ -158,6 +158,16 @@
 		</style>
 	</head>
 	<body>
+
+		<div id="loading-overlay" class="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center bg-dark bg-opacity-75" style="z-index: 1050;">
+			<div class="text-center text-white">
+				<div class="spinner-border text-light mb-3" role="status">
+					<span class="visually-hidden">Loading...</span>
+				</div>
+				<!-- <div>Uploading map...</div> -->
+			</div>
+		</div>
+
 		<canvas id="display">
 			HTML Canvas element is not supported on your device and/or browser.
 		</canvas>
@@ -242,7 +252,7 @@
 						</div>
 					</div>
 					
-					<div id="map-controls" {% if not is_owner and not board.users_can_edit %} hidden {% endif %} class="accordion-item bg-dark text-light">
+					<div id="map-controls" {% if not can_edit %} hidden {% endif %} class="accordion-item bg-dark text-light">
 						<h2 class="accordion-header" id="headingTwo">
 							<button class="accordion-button collapsed bg-dark text-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo" aria-expanded="false" aria-controls="collapseTwo">
 								Map
@@ -269,9 +279,9 @@
 									<label for="image" class="form-label">Upload Map</label>
 									<input type="hidden" name="board_method" value="upload_map" required>
 									<input type="hidden" name="board_id" value="{{board.board_id}}" required>
-									<input type="file" class="form-control" name="image" required>
+									<input id="upload-map-file" type="file" class="form-control" name="image" required>
 									<div class="d-flex align-items-column gap-3 mt-3">
-										<input type="text" placeholder="Name" class="form-control" name="name" required>
+										<input id="upload-map-name" type="text" placeholder="Name" class="form-control" name="name" required>
 										<button type="submit" class="btn btn-outline-primary">Upload</button>
 									</div>
 								</form>
@@ -331,7 +341,7 @@
 										<th>Toggle Control Panel</th>
 										<td>S</td>
 									</tr>
-									<tr id="mask-info-tr" {% if not is_owner and not board.users_can_edit %} hidden {% endif %}>
+									<tr id="mask-info-tr" {% if not can_edit %} hidden {% endif %}>
 										<th>Toggle Mask on Selected Square</th>
 										<td>M</td>
 									</tr>
@@ -370,6 +380,16 @@
 
 
 <script>
+		const loading_overlay = document.getElementById('loading-overlay');
+
+		function loading(bool) {
+			console.log('loading', bool);
+			if (bool) {
+				loading_overlay.classList.remove('d-none');
+			} else {
+				loading_overlay.classList.add('d-none');
+			}
+		}
 
 		const canvas = document.getElementById("display");
 		const ctx = canvas.getContext("2d");
@@ -392,7 +412,8 @@
 
 		var menu_open = false;
 		
-		var selected_square = null;
+		let saved_selected_square = localStorage.getItem('selected_square+{{ board.board_id }}');
+		var selected_square = saved_selected_square ? JSON.parse(saved_selected_square) : null;
 		
 		function update_color(part, c) {
 			colors[part] = c;
@@ -474,7 +495,7 @@
 			return false;
 		}
 
-		function handleClick(e) {
+		function handle_click(e) {
 			let rc = on_grid(e);
 			if (rc) {
 				selected_square = rc;
@@ -482,6 +503,7 @@
 				selected_square = null;
 				
 			}
+			localStorage.setItem('selected_square+{{ board.board_id }}', JSON.stringify(selected_square));
 			close_menu();
 			update_display()
 
@@ -516,7 +538,7 @@
 		  const totalMove = Math.hypot(offset.x, offset.y);
 		  isDragging = false;
 		  if (totalMove < 2) {
-		    handleClick(e);
+		    handle_click(e);
 		  }
 		};
 
@@ -686,42 +708,69 @@
 		var icons = JSON.parse('{{ icons|tojson|safe }}');
 		var icon_images = {};
 
+		var can_edit = JSON.parse('{{ can_edit|tojson|safe }}');
+
 		var maps = JSON.parse('{{ maps|tojson|safe }}');		
 		var map_images = {};
 		
+		var visible_map_image = new Image();
+
 		var num_squares;
 		var square_size;
 		
 		var map_order;
 
 
-
 		function make_map_DOM(map) {
 			const img = new Image();
 			map_images[map.image_id] = img;
 			return new Promise((resolve, reject) => {
-				img.onload = () => resolve();
-				img.onerror = () => resolve();
+				img.onload = () => {
+					console.log('Image loaded:', map.image_id);
+					resolve();
+				};
+				img.onerror = (error) => {
+					console.log('Image failed to load:', map.image_id, error);
+					reject(error);
+				};
 				img.setAttribute('name', 'map-' + map.image_id);
 				img.src = `/image/${map.image_id}`;
 			});
 		}
 
+		function set_visible_map_image() {
+			return new Promise((resolve, reject) => {
+				visible_map_image.onload = () => {
+					console.log('Image loaded:', visible_map_image);
+					resolve();
+				};
+				visible_map_image.onerror = (error) => {
+					console.log('Image failed to load:', visible_map_image, error);
+					reject(error);
+				};
+				visible_map_image.src = '/map/' + '{{ board.board_id }}?t=' + (new Date().getTime());
+			});		
+		}
+		
 		function make_icon_DOM(type, id) {
 			const img = new Image();
 			icon_images[type][id] = img;
 			return new Promise((resolve, reject) => {
-				img.onload = () => resolve();
-				img.onerror = () => resolve();
+				img.onload = () => {
+					console.log('Icon loaded:', type, id);
+					resolve();
+				};
+				img.onerror = (error) => {
+					console.log('Icon failed to load:', type, id, error);
+					reject(error);
+				};
 				img.dataset.id = type + '-' + id;
 				img.classList.add('image-' + type)
 				img.src = `/${type}/${id}?t=${new Date().getTime()}`;
 			});
 		}
 
-		function create_DOMs(callback) {
-			// take the data objects given by server, and populate associated image objects
-
+		function create_DOMs() {
 			let imagePromises = [];
 
 			for (let type in icons) {
@@ -732,43 +781,52 @@
 				}
 			}
 
-			for (let i = 0; i < maps.length; i++) {
-				imagePromises.push(make_map_DOM(maps[i]));
-			}
-
-
-			Promise.all(imagePromises).then(() => {				
-				if (typeof callback === 'function') {
-					callback();
+			if (can_edit) {
+				for (let i = 0; i < maps.length; i++) {
+					imagePromises.push(make_map_DOM(maps[i]));
 				}
-			});
+			}
+			imagePromises.push(set_visible_map_image());
 
+			return Promise.all(imagePromises);
 		}
+
+		const icon_container = document.getElementById('icon-container');
 
 
 		function build_menu_item(type, id) {
-			let img = icon_images[type][id].cloneNode(true);
-			img.classList.add('token-img');
-			img.dataset.name = icons[type][id].name;
-			img.addEventListener('click', () => {
-				if (selected_square) {
-					set_square(selected_square, {
-						type: type,
-						id: id
-					});
-				}
+			return new Promise((resolve, reject) => {
+				let img = icon_images[type][id].cloneNode(true);
+				img.onload = () => {
+					console.log('Icon loaded:', type, id);
+					resolve();
+				};
+				img.onerror = (error) => {
+					console.log('Icon failed to load:', type, id, error);
+					reject(error);
+				};
+				img.classList.add('token-img');
+				img.dataset.name = icons[type][id].name;
+				img.addEventListener('click', () => {
+					if (selected_square) {
+						set_square(selected_square, {
+							type: type,
+							id: id
+						});
+					}
+				});
+				icon_container.appendChild(img);
 			});
-			return img;
 		}
 
 		function build_menu() {
-			let icon_container = document.getElementById('icon-container');
+			let promises = [];
 			for (const type in icons) {
 				for (const id in icons[type]) {
-					icon_container.appendChild(build_menu_item(type, id));
+					promises.push(build_menu_item(type, id));
 				}
 			}
-			order_menu();
+			return Promise.all(promises);
 		}
 
 		function order_menu() {
@@ -792,87 +850,97 @@
 			images.forEach(img => icon_container.appendChild(img));
 		}
 
+		const map_select = document.getElementById('map-select');
 
 		function build_map_select_li(map) {
-			const li = document.createElement('li');
-			li.setAttribute('id', 'map-select-li-' + map.image_id);
-			li.className = 'mb-2';
+			return new Promise((resolve, reject) => {
+				const li = document.createElement('li');
+				li.setAttribute('id', 'map-select-li-' + map.image_id);
+				li.className = 'mb-2';
 
-			const wrapper = document.createElement('div');
-			wrapper.className = 'd-flex map-button-wrapper align-items-stretch position-relative';
+				const wrapper = document.createElement('div');
+				wrapper.className = 'd-flex map-button-wrapper align-items-stretch position-relative';
 
-			const button = document.createElement('button');
-			button.className = 'main-btn btn flex-grow-1 d-flex align-items-center gap-3 btn-outline-primary';
+				const button = document.createElement('button');
+				button.className = 'main-btn btn flex-grow-1 d-flex align-items-center gap-3 btn-outline-primary';
+				
+				const eye = document.createElement('i');
+				eye.className = 'bi bi-eye';
+				eye.style.width = "20px";
+				eye.style.visibility = map.visible ? 'visible' : 'hidden';  
+				eye.id = 'map-eye-icon-' + map.image_id;
+				button.appendChild(eye);
+				
+				let img = map_images[map.image_id].cloneNode(true);
+				img.onload = () => {
+					console.log('Image loaded:', map.image_id);
+					resolve();
+				};
+				img.onerror = (error) => {
+					console.log('Image failed to load:', map.image_id, error);
+					reject(error);
+				};
+				button.appendChild(img);			
+
+				const label = document.createElement('span');
+				label.className = 'label-text';
+				label.textContent = map.name;
+				button.appendChild(label);
+
+				const trashBtn = document.createElement('button');
+				trashBtn.className = 'trash-btn btn text-danger d-flex align-items-center justify-content-center';
+				trashBtn.innerHTML = '<i class="bi bi-trash"></i>';
+				trashBtn.onclick = () => {
+					loading(true);
+					navigator.sendBeacon(
+						'/board_access',
+						new Blob(
+							[
+								JSON.stringify({
+									image_id: map.image_id,
+									board_id: '{{board.board_id}}',
+									board_method: 'delete_map',
+								}),
+							],
+							{ type: 'application/json' }
+						)
+					);
+				};
+
+				button.onclick = function () {
+					loading(true);
+					navigator.sendBeacon(
+						'/board_access',
+						new Blob(
+							[
+								JSON.stringify({
+									image_id: map.image_id,
+									board_id: '{{board.board_id}}',
+									board_method: 'toggle_map_visibility',
+								}),
+							],
+							{ type: 'application/json' }
+						)
+					);
+				};
+
+				wrapper.appendChild(button);
+				wrapper.appendChild(trashBtn);
+				li.appendChild(wrapper);
+				map_select.appendChild(li);
+				return li;
+			});
 			
-			const eye = document.createElement('i');
-			eye.className = 'bi bi-eye';
-			eye.style.width = "20px";
-			eye.style.visibility = map.visible ? 'visible' : 'hidden';  
-			eye.id = 'map-eye-icon-' + map.image_id;
-			button.appendChild(eye);
-
-			button.appendChild(map_images[map.image_id].cloneNode(true));
-
-			
-
-			const label = document.createElement('span');
-			label.className = 'label-text';
-			label.textContent = map.name;
-			button.appendChild(label);
-
-			
-
-			const trashBtn = document.createElement('button');
-			trashBtn.className = 'trash-btn btn text-danger d-flex align-items-center justify-content-center';
-			trashBtn.innerHTML = '<i class="bi bi-trash"></i>';
-			trashBtn.onclick = () => {
-				navigator.sendBeacon(
-					'/board_access',
-					new Blob(
-						[
-							JSON.stringify({
-								image_id: map.image_id,
-								board_id: '{{board.board_id}}',
-								board_method: 'delete_map',
-							}),
-						],
-						{ type: 'application/json' }
-					)
-				);
-			};
-
-			button.onclick = function () {
-				navigator.sendBeacon(
-					'/board_access',
-					new Blob(
-						[
-							JSON.stringify({
-								image_id: map.image_id,
-								board_id: '{{board.board_id}}',
-								board_method: 'toggle_map_visibility',
-							}),
-						],
-						{ type: 'application/json' }
-					)
-				);
-			};
-
-			wrapper.appendChild(button);
-			wrapper.appendChild(trashBtn);
-			li.appendChild(wrapper);
-			return li;
 		}
 
-
 		function build_map_select() {
-			let map_select = document.getElementById('map-select');
+
 			map_select.innerHTML = "";
+			let promises = [];
 			for (let i = 0; i < maps.length; i++) {
 				if (maps[i].editable == false) continue;
 				
-				let li = build_map_select_li(maps[i]);
-				map_select.appendChild(li);
-				
+				promises.push(build_map_select_li(maps[i]));				
 			}
 
 			new Sortable(document.getElementById('map-select'), {
@@ -897,7 +965,7 @@
 				}
 			});
 
-			
+			return Promise.all(promises);
 		}
 
 
@@ -928,6 +996,29 @@
 		}
 
 
+		async function initialize() {
+			try {
+				await create_DOMs(); // Wait for all images to load
+
+				// // Ensure all DOM updates are done
+				// await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay to let the browser render images
+
+				await build_menu();
+				order_menu();
+
+				await build_map_select();
+				
+				set_keybindings();
+				
+				update_display();
+				
+			} catch (error) {
+				console.error('Error loading images:', error);
+			} finally {
+				loading(false); // Call loading(false) after everything is rendered
+			}
+		}
+
 		window.onload = function() {
 			let rect = canvas.getBoundingClientRect();
 			canvas.width = rect.width;
@@ -956,12 +1047,7 @@
 				);
 			}
 
-			create_DOMs(function() {
-				update_display();
-				build_menu();
-				build_map_select();
-				set_keybindings();
-			});
+			initialize();
 			
 
 			var socket = io({transports: ['websocket']});
@@ -998,7 +1084,7 @@
 
 			// changes
 			socket.on('update icon', function(msg) {
-				console.log('socket: update image');
+				console.log('socket: update icon');
 				document.querySelectorAll(`[data-id="${msg.type}-${msg.id}"]`).forEach(img => {
 					img.src = `/${msg.type}/${msg.id}?t=${new Date().getTime()}`
 				});
@@ -1009,41 +1095,56 @@
 
 			socket.on('rebuild map select', function(msg) {
 				console.log('socket: rebuild map select');
-
+				loading(true);
 				if (!areMapsEqual(msg.maps, maps)) {
 					maps = msg.maps;
-					build_map_select();
+					build_map_select().then(() => {
+						update_display();
+						loading(false);
+					});
+				} else {
+					update_display();
+					loading(false);
 				}
-				update_display();
 				
 			});
 
 			socket.on('new map', function(msg) {
 				console.log('socket: new map');
+				loading(true);
+				let promises = [];
+				if (can_edit) {
+					maps.push(msg.map);
+					promises.push(make_map_DOM(msg.map).then(() => build_map_select_li(msg.map)));
+				}
 				
-				make_map_DOM(msg.map).then(() => {
+				promises.push(set_visible_map_image());
+				
+				Promise.all(promises).then(() => {
 					update_display();
+					loading(false);
 				});
-				maps.push(msg.map);
-				let map_select = document.getElementById('map-select');
-				let li = build_map_select_li(msg.map);
-				map_select.appendChild(li);
-				
-								
+			
 			});
 
 			socket.on('toggle visibility', function(msg) {
 				console.log('socket: toggle visibility');
-				let eye = document.getElementById('map-eye-icon-' + msg.image_id);
-				eye.style.visibility = eye.style.visibility == 'hidden' ? 'visible' : 'hidden';  
-				for (let i = 0; i < maps.length; i++) {
-					if (maps[i].image_id == msg.image_id) {
-						maps[i].visible = !maps[i].visible;
-						break;
+				loading(true);
+				if (can_edit) {
+					let eye = document.getElementById('map-eye-icon-' + msg.image_id);
+					eye.style.visibility = eye.style.visibility == 'hidden' ? 'visible' : 'hidden';  
+					for (let i = 0; i < maps.length; i++) {
+						if (maps[i].image_id == msg.image_id) {
+							maps[i].visible = !maps[i].visible;
+							break;
+						}
 					}
 				}
-				update_display();
-			
+				set_visible_map_image()
+					.then(() => {
+						update_display();
+						loading(false);
+					});
 			});
 
 			socket.on('update squares', function(msg) {
@@ -1057,6 +1158,7 @@
 
 			socket.on('update grid data', function(msg) {
 				console.log('socket: update grid data');
+				loading(true);
 				board = msg.board;
 				num_squares = {
 					x: board[0].length,
@@ -1066,7 +1168,7 @@
 				set_zoom(zoom);
 
 				update_display();
-				
+				loading(false);
 			});
 
 			socket.on('update keybindings', function(msg) {
@@ -1097,51 +1199,74 @@
 
 			socket.on('new token', function(msg) {
 				console.log('socket: new token');
-
+				loading(true);
 				icons['token'][msg.id] = msg.token;
-				make_icon_DOM('token', msg.id);
 				set_keybindings();
-				// let tr = document.createElement('tr');
-				// fill_key_bind_tr(tr, msg.id);
-				// document.getElementById('token-keybindings').appendChild(tr);
-				document.getElementById('icon-container').appendChild(build_menu_item('token', msg.id));
-				update_display();
-				order_menu();
-			});
+				make_icon_DOM('token', msg.id)
+					.then(() => build_menu_item('token', msg.id))
+					.then(() => {
+						update_display();
+						order_menu();
+						loading(false);
+					});
+				});
+			
+
 
 			socket.on('delete map', function(msg) {
 				console.log('socketio: delete map');
-				maps = maps.filter(map => map.image_id != msg.image_id);
-				document.getElementById('map-select-li-' + msg.image_id).remove();
-				delete map_images[msg.image_id];
-				update_display();
+				if (can_edit) {
+					maps = maps.filter(map => map.image_id != msg.image_id);
+					document.getElementById('map-select-li-' + msg.image_id).remove();
+					delete map_images[msg.image_id];
+				}
+				set_visible_map_image()
+					.then(() => {
+						update_display();
+						loading(false);
+					});
 			});
 
 			socket.on('user joined', function(msg) {
 				console.log('socketio: user joined');
+				loading(true);
+				let promises = [];
 				// add tokens
 				for (let token_id in msg.tokens) {
 					icons['token'][token_id] = msg.tokens[token_id];
 					make_icon_DOM('token', token_id);
-					document.getElementById('icon-container').appendChild(build_menu_item('token', token_id));
+					promises.push(build_menu_item('token', token_id));
 				}
 				
 				// set avatar image
 				icons['avatar'][msg.user_id] = {'name': msg.name};
 				make_icon_DOM('avatar', msg.user_id);
-				document.getElementById('icon-container').appendChild(build_menu_item('avatar', msg.user_id));
+				promises.push(build_menu_item('avatar', msg.user_id));
 				
-				order_menu();
-
-				// set keybindings
-				set_keybindings();
+				Promise.all(promises).then(() => {
+					set_keybindings();
+					order_menu();
+					loading(false);
+				});				
 				
 			})
 
 			socket.on('set users can edit', function(msg) {
 				console.log('socketio: set users can edit');
-				document.getElementById('map-controls').hidden = !msg.users_can_edit && !JSON.parse('{{ is_owner|tojson }}');
-				document.getElementById('mask-info-tr').hidden = !msg.users_can_edit && !JSON.parse('{{ is_owner|tojson }}');
+				loading(true)
+				can_edit = msg.users_can_edit;
+				document.getElementById('map-controls').hidden = !can_edit;
+				document.getElementById('mask-info-tr').hidden = !can_edit;
+				maps = msg.maps;
+				if (can_edit) {
+					create_DOMs().then(() => {
+						update_display();
+						loading(false);
+					});
+				} else {
+					map_images = {};
+					loading(false);
+				}
 			});
 
 		};
@@ -1161,24 +1286,37 @@
 
 
 
+
+
+
+
 		const upload_map_form = document.getElementById('upload_map_form');
 
 		upload_map_form.addEventListener('submit', async (e) => {
 			e.preventDefault();
 
-			const res = await fetch('/board_access', {
-				method: 'POST',
-				body: new FormData(upload_map_form)
-			});
+			loading(true);
 
-			const message = await res.text();
+			try {
+				const res = await fetch('/board_access', {
+					method: 'POST',
+					body: new FormData(upload_map_form)
+				});
 
-			if (res.ok) {
-				document.querySelector('#upload_map_form input').value = '';
-			} else {
-				alert(message); // Show error message	
+				const message = await res.text();
+
+				if (res.ok) {
+					document.getElementById('upload-map-file').value = '';
+					document.getElementById('upload-map-name').value = '';
+				} else {
+					alert(message);
+				}
+			} catch (err) {
+				console.error('Upload failed:', err);
+				alert('An error occurred during upload.');
 			}
 		});
+
 
 		function reset() {
 			navigator.sendBeacon(
@@ -1194,6 +1332,7 @@
 		}
 
 		function change_num_squares(ax, num) {
+			loading(true);
 			navigator.sendBeacon(
 				'/board_access',
 				new Blob(
@@ -1236,6 +1375,9 @@
 		// function leave() {
 		// 	navigator.sendBeacon("/leave");
 		// }
+
+
+
 
 
 
@@ -1294,18 +1436,24 @@
 
 			// maps
 			ctx.globalAlpha = map_opacity;
-			for (let i = maps.length - 1; i >= 0; i--) {
-				if (maps[i].visible) {
-					ctx.drawImage(
-						map_images[maps[i].image_id],
-						top_left_loc.x,
-						top_left_loc.y,
-						square_size * num_squares.x,
-						square_size * num_squares.y
-					);
-				}
-			}
-			
+			// for (let i = maps.length - 1; i >= 0; i--) {
+			// 	if (maps[i].visible) {
+			// 		ctx.drawImage(
+			// 			map_images[maps[i].image_id],
+			// 			top_left_loc.x,
+			// 			top_left_loc.y,
+			// 			square_size * num_squares.x,
+			// 			square_size * num_squares.y
+			// 		);
+			// 	}
+			// }
+			ctx.drawImage(
+				visible_map_image,
+				top_left_loc.x,
+				top_left_loc.y,
+				square_size * num_squares.x,
+				square_size * num_squares.y
+			);
 			ctx.globalAlpha = 1; 
 
 
