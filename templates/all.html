@@ -106,7 +106,9 @@
                     <th scope="col">Grid Data</th>
                     <th scope="col">Maps</th>
                     <th scope="col">Visible Map</th>
-                    <th scope="col">Users can Edit</th>
+                    <th scope="col">Users Can Edit</th>
+                    <th scope="col">Super Secret</th>
+                    <th scope="col">Visible Map Up to Date</th>
                 </tr>
             </thead>
             <tbody>
@@ -159,6 +161,8 @@
                     </td>
                     <td><img class="img-fluid" src="{{board.visible_map.get_url()}}"></td>
                     <td>{{ board.users_can_edit }}</td>
+                    <td>{{ board.super_secret }}</td>
+                    <td>{{ board.visible_map_up_to_date }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

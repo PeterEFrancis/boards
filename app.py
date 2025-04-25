@@ -33,7 +33,6 @@ from PIL import Image, ImageDraw, ImageFont
 from PIL import Image, ImageFile as PILImageFile
 PILImageFile.LOAD_TRUNCATED_IMAGES = True  # Optional, improves robustness
 
-import base64
 
 
 
@@ -106,8 +105,8 @@ def handle_join(data):
 
 
 
-ICON_SIZE = 64
-
+ICON_SIZE = 128
+COMPRESSION_TYPE = Image.Resampling.LANCZOS
 
 def SHA1(string):
     return hashlib.sha1(string.encode()).hexdigest()
@@ -136,7 +135,7 @@ def generate_default_avatar(username):
 
 
 def resize_image(img, dims=[1,1]):
-    return img.thumbnail((ICON_SIZE * dims[0], ICON_SIZE * dims[1]), Image.Resampling.NEAREST)
+    return img.thumbnail((ICON_SIZE * dims[0], ICON_SIZE * dims[1]), COMPRESSION_TYPE)
 
 def img_to_bytes(img):
     img_bytes = io.BytesIO()
@@ -150,27 +149,27 @@ def get_blank_image():
 
 
 
-def image_open(data, max_size=(2160, 2160), max_bytes=2**20, min_quality=0, step=5):
+def image_open(data, max_bytes=2**21, min_quality=30, step=5):
     """
-    Open an image from bytes, resize if needed, and compress to be <= max_bytes.
-    Returns a PIL.Image object (compressed).
+    Open an image from bytes, resample with high-quality filter (LANCZOS),
+    and compress to be <= max_bytes. Returns a PIL.Image object.
     """
     if isinstance(data, bytes):
         data = io.BytesIO(data)
 
     img = Image.open(data)
-    img_format = img.format or 'JPEG'  # fallback for unknowns
+    img_format = img.format or 'JPEG'
 
-    # Convert to RGB or RGBA based on format
+    # Convert to RGB(A) depending on format
     if img_format.upper() == "PNG":
         img = img.convert("RGBA")
     else:
         img = img.convert("RGB")
 
-    # Resize to max dimensions
-    img.thumbnail(max_size, Image.NEAREST)
+    # Force a LANCZOS resample even if no size change
+    img.thumbnail(img.size, Image.LANCZOS)
 
-    # Compress to target size
+    # Compress to max_bytes using quality steps
     quality = 95
     buffer = io.BytesIO()
     while quality >= min_quality:
@@ -183,10 +182,7 @@ def image_open(data, max_size=(2160, 2160), max_bytes=2**20, min_quality=0, step
         quality -= step
 
     buffer.seek(0)
-    compressed_img = Image.open(buffer)
-
-    # Match original mode to avoid surprises
-    return compressed_img
+    return Image.open(buffer)
 
 
 #  ____            _             _
@@ -236,6 +232,7 @@ class ImageFile(db.Model):
     def get_url(self):
         return '/image/' + str(self.image_id)
 
+
     def to_img(self):
         return image_open(io.BytesIO(self.image_bytes))
 
@@ -260,11 +257,13 @@ class Board(db.Model):
     maps = db.Column(JSON, nullable=True)  # Store a list of JSON objects here
     members = db.relationship("User", secondary=user_joined_boards, back_populates="joined_boards")
     users_can_edit = db.Column(db.Boolean, default=False)
+    super_secret = db.Column(db.Boolean, default=False)
     composite_map_id = db.Column(UUID(as_uuid=True), db.ForeignKey('images.image_id'), nullable=False)
     composite_map = relationship("ImageFile", foreign_keys=[composite_map_id])
     visible_map_id = db.Column(UUID(as_uuid=True), db.ForeignKey('images.image_id'), nullable=False)
     visible_map = relationship("ImageFile", foreign_keys=[visible_map_id])
-    
+    num_mask_squares = db.Column(db.Integer, default=0)
+    visible_map_up_to_date = db.Column(db.Boolean, default=True)
 
     def __init__(self, name, owner):
         self.name = name
@@ -295,6 +294,7 @@ class Board(db.Model):
     #     self.grid_data = data
     #     db.session.commit()
 
+
     def set_square(self, square, content):
         changes = []
 
@@ -321,13 +321,15 @@ class Board(db.Model):
         changes.append((square['r'], square['c']))
         flag_modified(self, "grid_data")
         db.session.commit()
-        return [[{'r':r, 'c':c}, self.grid_data[r][c]] for (r,c) in changes]
+        return [[{'r':r, 'c':c}, self.get_square({'r':r, 'c':c})] for (r,c) in changes]
 
     def get_square(self, square):
+        if self.super_secret and self.has_mask(square):
+            return {'mask': True}
         return self.grid_data[square['r']][square['c']]
     
     def add_map(self, image, name=None, editable=True):
-        image_file = ImageFile(owner=self.owner, image=image)
+        image_file = ImageFile(owner=self.owner, image=image, name='map ' + name + ' for board ' + str(self.board_id))
         db.session.add(image_file)
         db.session.commit()
         self.maps.append({
@@ -337,8 +339,13 @@ class Board(db.Model):
             'editable': editable
         })
         flag_modified(self, "maps")
+        
+        if self.super_secret:
+            self.update_composite_map()
+        else:
+            self.visible_map_up_to_date = False
+        
         db.session.commit()
-        self.update_composite_map()
 
     def update_composite_map(self):
         width = len(self.grid_data[0]) * ICON_SIZE
@@ -347,11 +354,12 @@ class Board(db.Model):
         for map in self.maps[::-1]:
             if map['visible']:
                 overlay = get_ImageFile(map['image_id']).to_img()
-                overlay = overlay.resize((width, height), Image.Resampling.NEAREST)
+                overlay = overlay.resize((width, height), COMPRESSION_TYPE)
                 overlay = overlay.convert("RGBA")
-                img.alpha_composite(overlay, (0, 0))
+                img.paste(overlay, (0, 0))
         self.composite_map.set_image(img)
         self.update_visible_map()
+        
 
 
     def update_visible_map(self):
@@ -362,6 +370,8 @@ class Board(db.Model):
                 if self.has_mask({'r': i, 'c': j}):
                     img.paste(black_square, (j * ICON_SIZE, i * ICON_SIZE))
         self.visible_map.set_image(img)
+        self.visible_map_up_to_date = True
+        db.session.commit()
 
     def set_name(self, name):
         self.name = name
@@ -372,15 +382,28 @@ class Board(db.Model):
             if self.maps[i]['image_id'] == image_id:
                 self.maps[i]['visible'] = not self.maps[i]['visible']
         flag_modified(self, 'maps')
+        
+        if self.super_secret:
+            self.update_composite_map()
+        else:
+            self.visible_map_up_to_date = False
+
         db.session.commit()
-        self.update_composite_map()
+
 
     def reset(self):
         for i in range(len(self.grid_data)):
             for j in range(len(self.grid_data[0])):
                 self.grid_data[i][j] = None
         flag_modified(self, "grid_data")
+        
+        if self.super_secret:
+            self.update_composite_map()
+        else:
+            self.visible_map_up_to_date = False
+
         db.session.commit()
+
 
     def change_num_squares(self, axis, new_size):
         if axis not in ('x', 'y'):
@@ -408,15 +431,27 @@ class Board(db.Model):
                 self.grid_data = self.grid_data[:new_size]
 
         flag_modified(self, 'grid_data')
+        
+        if self.super_secret:
+            self.update_visible_map()
+        else:
+            self.visible_map_up_to_date = False
+        
         db.session.commit()
-        self.update_composite_map()
+
 
     def reorder_maps(self, order):
         # keep blank map first
         self.maps = sorted(self.maps, key = lambda x: order.index(x['image_id']) if x['image_id'] in order else -1)
         flag_modified(self, 'maps')
+        
+        if self.super_secret:
+            self.update_composite_map()
+        else:
+            self.visible_map_up_to_date = False
+
         db.session.commit()
-        self.update_composite_map()
+
 
     def delete_map(self, image_id):
         for map in self.maps:
@@ -424,13 +459,22 @@ class Board(db.Model):
                 self.maps.remove(map)
         flag_modified(self, 'maps')
         db.session.delete(get_ImageFile(image_id))
+        if self.super_secret:
+            self.update_composite_map()
+        else:
+            self.visible_map_up_to_date = False
         db.session.commit()
-        self.update_composite_map()
         
 
     def set_users_can_edit(self, can_edit):
         self.users_can_edit = can_edit
         db.session.commit()
+
+    def set_super_secret(self, super_secret):
+        self.super_secret = super_secret
+        db.session.commit()
+        if super_secret:
+            self.update_composite_map()
 
     def has_mask(self, square):
         return self.grid_data[square['r']][square['c']] is not None and 'mask' in self.grid_data[square['r']][square['c']] and self.grid_data[square['r']][square['c']]['mask']
@@ -447,12 +491,25 @@ class Board(db.Model):
             self.grid_data[square['r']][square['c']]['mask'] = False
         self.grid_data[square['r']][square['c']]['mask'] = not self.grid_data[square['r']][square['c']]['mask']
         flag_modified(self, "grid_data")
+        if self.super_secret:
+            self.update_visible_map()
+        else:
+            self.visible_map_up_to_date = False
         db.session.commit()
-        self.update_visible_map()
-
+        
     def get_dims(self):
         return len(self.grid_data[0]), len(self.grid_data)
 
+    def get_grid_data(self):
+        if self.super_secret:
+            dims = self.get_dims()
+            ret = [[None] * dims[1] for _ in range(dims[0])]
+            for r in range(dims[0]):
+                for c in range(dims[1]):
+                    ret[r][c] = self.get_square({'r':r, 'c':c})
+            return ret
+            
+        return self.grid_data
 
     def __repr__(self):
         return f'<name: {self.name}, owner: {self.owner.username}>'
@@ -625,6 +682,12 @@ def image(image_id):
     # Load image from bytes
     img = Image.open(io.BytesIO(image_file.image_bytes)).convert("RGBA")
 
+    icon = request.args.get('icon', 'false').lower() == 'true'
+    
+    if icon:
+        # Resize the image to an icon size if the 'icon' parameter is set to true
+        img = img.resize((ICON_SIZE, ICON_SIZE), COMPRESSION_TYPE)
+
     # Save to memory
     buf = io.BytesIO()
     img.save(buf, format='PNG')
@@ -644,17 +707,25 @@ def token(token_id):
     return image(token.image_id)
 
 
+
 @app.route('/map/<uuid:board_id>')
-def map(board_id):
+def view_map(board_id):
     board = Board.query.get_or_404(board_id)
 
+    if not board.visible_map_up_to_date:
+        board.update_composite_map()
+
     img = Image.open(io.BytesIO(board.visible_map.image_bytes)).convert("RGB")
+    
+    icon = request.args.get('icon', 'false').lower() == 'true'
+    
+    if icon:
+        # Resize the image to an icon size if the 'icon' parameter is set to true
+        img = img.resize((ICON_SIZE, ICON_SIZE), COMPRESSION_TYPE)
 
     buf = io.BytesIO()
     img.save(buf, format='JPEG')
     buf.seek(0)
-
-    print("="*1000)
 
     return send_file(buf, mimetype='image/jpeg', max_age=3600)
 
@@ -1056,7 +1127,10 @@ def board_access():
         board.toggle_mask_square(data['square'])
         socketio.emit(
             'update squares',
-            {'changes': [[data['square'], board.get_square(data['square'])]]},
+            {
+                'changes': [[data['square'], board.get_square(data['square'])]],
+                'mask_change': True
+            },
             room=str(board.board_id)
         )
     elif data['board_method'] == 'upload_map':
@@ -1104,7 +1178,18 @@ def board_access():
             'set users can edit',
             {
                 'users_can_edit': data['users_can_edit'],
-                'maps': board.maps if data['users_can_edit'] else []
+                'maps': board.maps if data['users_can_edit'] or not board.super_secret else []
+            },
+            room=str(board.board_id)
+        )
+    elif data['board_method'] == 'set_super_secret':
+        board.set_super_secret(data['super_secret'])
+        socketio.emit(
+            'set super secret',
+            {   
+                'grid_data': board.get_grid_data(),
+                'super_secret': data['super_secret'],
+                'maps': board.maps if not data['super_secret'] or board.users_can_edit else []
             },
             room=str(board.board_id)
         )
@@ -1112,7 +1197,9 @@ def board_access():
         board.delete_map(data['image_id'])
         socketio.emit(
             'delete map',
-            {'image_id': data['image_id']},
+            {
+                'image_id': data['image_id'],
+            },
             room=str(board.board_id)
         )
     elif data['board_method'] == 'change_name':
@@ -1207,8 +1294,9 @@ def board(board_id):
                         'y':len(board.grid_data)
                     },
                     icons=icons,
-                    maps=board.maps if can_edit else [],
-                    can_edit=can_edit
+                    maps=board.maps if can_edit or not board.super_secret else [],
+                    can_edit=can_edit,
+                    super_secret=board.super_secret
                     # is_owner=(board.owner_id == user.user_id)
                 )
         

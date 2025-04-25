@@ -164,7 +164,7 @@
 				<div class="spinner-border text-light mb-3" role="status">
 					<span class="visually-hidden">Loading...</span>
 				</div>
-				<!-- <div>Uploading map...</div> -->
+				<div id="loading-msg"></div>
 			</div>
 		</div>
 
@@ -381,14 +381,16 @@
 
 <script>
 		const loading_overlay = document.getElementById('loading-overlay');
-
-		function loading(bool) {
-			console.log('loading', bool);
+		var is_loading;
+		function loading(bool, msg) {
+			console.log('loading', bool, msg);
+			is_loading = bool;
 			if (bool) {
 				loading_overlay.classList.remove('d-none');
 			} else {
 				loading_overlay.classList.add('d-none');
 			}
+			document.getElementById('loading-msg').innerHTML = msg || '';
 		}
 
 		const canvas = document.getElementById("display");
@@ -577,7 +579,7 @@
 
 
 		document.onkeydown = (e) => {
-
+			if (is_loading) return;
 
 			if (e.shiftKey) {
 
@@ -673,9 +675,9 @@
 
 				if (e.code === 'KeyM' && document.activeElement === document.body) {
 					e.preventDefault();
-					
 					if (!selected_square) return;
-
+					if (!can_edit) return;
+					loading(true, 'Setting Mask');
 					toggle_mask(selected_square)
 					
 				}
@@ -703,12 +705,13 @@
 
 
 
-		var board = JSON.parse('{{ board.grid_data|tojson|safe }}');
+		var board = JSON.parse('{{ board.get_grid_data()|tojson|safe }}');
 		
 		var icons = JSON.parse('{{ icons|tojson|safe }}');
 		var icon_images = {};
 
 		var can_edit = JSON.parse('{{ can_edit|tojson|safe }}');
+		var super_secret = JSON.parse('{{ super_secret|tojson|safe }}');
 
 		var maps = JSON.parse('{{ maps|tojson|safe }}');		
 		var map_images = {};
@@ -739,6 +742,7 @@
 		}
 
 		function set_visible_map_image() {
+			console.log("setting visible map image");
 			return new Promise((resolve, reject) => {
 				visible_map_image.onload = () => {
 					console.log('Image loaded:', visible_map_image);
@@ -781,12 +785,14 @@
 				}
 			}
 
-			if (can_edit) {
+			if (can_edit || !super_secret) {
 				for (let i = 0; i < maps.length; i++) {
 					imagePromises.push(make_map_DOM(maps[i]));
 				}
 			}
-			imagePromises.push(set_visible_map_image());
+			if (super_secret) {
+				imagePromises.push(set_visible_map_image());
+			}
 
 			return Promise.all(imagePromises);
 		}
@@ -891,7 +897,7 @@
 				trashBtn.className = 'trash-btn btn text-danger d-flex align-items-center justify-content-center';
 				trashBtn.innerHTML = '<i class="bi bi-trash"></i>';
 				trashBtn.onclick = () => {
-					loading(true);
+					loading(true, 'Deleting map');
 					navigator.sendBeacon(
 						'/board_access',
 						new Blob(
@@ -908,7 +914,7 @@
 				};
 
 				button.onclick = function () {
-					loading(true);
+					loading(true, 'Changing map visibility');
 					navigator.sendBeacon(
 						'/board_access',
 						new Blob(
@@ -998,18 +1004,19 @@
 
 		async function initialize() {
 			try {
+				loading(true, 'Creating images')
 				await create_DOMs(); // Wait for all images to load
 
 				// // Ensure all DOM updates are done
 				// await new Promise(resolve => setTimeout(resolve, 100)); // 100ms delay to let the browser render images
-
+				loading(true, 'Building menus')
 				await build_menu();
 				order_menu();
-
+				loading(true, 'Building maps')
 				await build_map_select();
-				
+				loading(true, 'Setting Keybindings')
 				set_keybindings();
-				
+				loading(true, 'Painting display')
 				update_display();
 				
 			} catch (error) {
@@ -1095,7 +1102,7 @@
 
 			socket.on('rebuild map select', function(msg) {
 				console.log('socket: rebuild map select');
-				loading(true);
+				loading(true, 'Building maps');
 				if (!areMapsEqual(msg.maps, maps)) {
 					maps = msg.maps;
 					build_map_select().then(() => {
@@ -1111,14 +1118,14 @@
 
 			socket.on('new map', function(msg) {
 				console.log('socket: new map');
-				loading(true);
+				loading(true, 'Building map');
 				let promises = [];
-				if (can_edit) {
+				if (can_edit || !super_secret) {
 					maps.push(msg.map);
 					promises.push(make_map_DOM(msg.map).then(() => build_map_select_li(msg.map)));
+				} else {
+					promises.push(set_visible_map_image());
 				}
-				
-				promises.push(set_visible_map_image());
 				
 				Promise.all(promises).then(() => {
 					update_display();
@@ -1129,8 +1136,8 @@
 
 			socket.on('toggle visibility', function(msg) {
 				console.log('socket: toggle visibility');
-				loading(true);
-				if (can_edit) {
+				loading(true, 'Changing map visibility');
+				if (can_edit || !super_secret) {
 					let eye = document.getElementById('map-eye-icon-' + msg.image_id);
 					eye.style.visibility = eye.style.visibility == 'hidden' ? 'visible' : 'hidden';  
 					for (let i = 0; i < maps.length; i++) {
@@ -1139,12 +1146,15 @@
 							break;
 						}
 					}
-				}
-				set_visible_map_image()
-					.then(() => {
+					update_display();
+					loading(false);
+				} else {
+					loading(true, 'Building map');
+					set_visible_map_image().then(() => {
 						update_display();
 						loading(false);
 					});
+				}
 			});
 
 			socket.on('update squares', function(msg) {
@@ -1152,13 +1162,22 @@
 				for (let change of msg.changes) {
 					board[change[0].r][change[0].c] = change[1];
 				}
-				update_display();
+				if (msg.mask_change && super_secret) {
+					set_visible_map_image().then(() => {
+						update_display();
+						loading(false);
+					});
+				} else {
+					update_display();
+					loading(false);
+				}
+				
 				
 			});
 
 			socket.on('update grid data', function(msg) {
 				console.log('socket: update grid data');
-				loading(true);
+				loading(true, 'Updating grid');
 				board = msg.board;
 				num_squares = {
 					x: board[0].length,
@@ -1199,7 +1218,7 @@
 
 			socket.on('new token', function(msg) {
 				console.log('socket: new token');
-				loading(true);
+				loading(true, 'Building new token');
 				icons['token'][msg.id] = msg.token;
 				set_keybindings();
 				make_icon_DOM('token', msg.id)
@@ -1215,21 +1234,32 @@
 
 			socket.on('delete map', function(msg) {
 				console.log('socketio: delete map');
-				if (can_edit) {
+				loading(true, 'Deleting map')
+				
+				if (super_secret) {
+					set_visible_map_image()
+						.then(() => {
+							update_display();
+							loading(false);
+							console.log("here2")
+
+						});
+				} else {
 					maps = maps.filter(map => map.image_id != msg.image_id);
-					document.getElementById('map-select-li-' + msg.image_id).remove();
-					delete map_images[msg.image_id];
+					if (can_edit) {
+						document.getElementById('map-select-li-' + msg.image_id).remove();
+						delete map_images[msg.image_id];
+					}
+					update_display();
+					loading(false);
+			
 				}
-				set_visible_map_image()
-					.then(() => {
-						update_display();
-						loading(false);
-					});
+
 			});
 
 			socket.on('user joined', function(msg) {
 				console.log('socketio: user joined');
-				loading(true);
+				loading(true, 'Adding new user');
 				let promises = [];
 				// add tokens
 				for (let token_id in msg.tokens) {
@@ -1253,11 +1283,12 @@
 
 			socket.on('set users can edit', function(msg) {
 				console.log('socketio: set users can edit');
-				loading(true)
+				loading(true, 'Updating user permissions')
 				can_edit = msg.users_can_edit;
 				document.getElementById('map-controls').hidden = !can_edit;
 				document.getElementById('mask-info-tr').hidden = !can_edit;
 				maps = msg.maps;
+
 				if (can_edit) {
 					create_DOMs().then(() => {
 						update_display();
@@ -1268,6 +1299,30 @@
 					loading(false);
 				}
 			});
+
+
+			socket.on('set super secret', function(msg) {
+				console.log('socketio: set super secret');
+				loading(true, 'Reconfiguring permissions')
+				super_secret = msg.super_secret;
+				maps = msg.maps;
+				if (can_edit || !super_secret) {
+					create_DOMs().then(() => {
+						update_display();
+						loading(false);
+					});
+				}
+				if (super_secret) {
+					loading(true, 'Building map');
+					board = msg.grid_data;
+					set_visible_map_image().then(() => {
+						update_display();
+						loading(false);
+					});
+					map_images = {};
+				}
+			});
+
 
 		};
 
@@ -1291,23 +1346,33 @@
 
 
 		const upload_map_form = document.getElementById('upload_map_form');
-
 		upload_map_form.addEventListener('submit', async (e) => {
 			e.preventDefault();
+			const upload_map_file = document.getElementById('upload-map-file');
+			const upload_map_name = document.getElementById('upload-map-name');
+			const file = upload_map_file.files[0];
+			var confirmed = true;
+			console.log(file.size);
+			if (file && file.size > Math.pow(2, 20)) {
+				confirmed = confirm("The file size is large and might slow performance. Consider lowering image quality. Click 'Cancel' to cancel and 'Ok' to proceed anyway.");
+			}
+			
+			if (!confirmed) return;
 
-			loading(true);
+			loading(true, "Uploading new map");
 
 			try {
 				const res = await fetch('/board_access', {
 					method: 'POST',
 					body: new FormData(upload_map_form)
 				});
+				loading(true, "Processing image")
 
 				const message = await res.text();
 
 				if (res.ok) {
-					document.getElementById('upload-map-file').value = '';
-					document.getElementById('upload-map-name').value = '';
+					upload_map_file.value = '';
+					upload_map_name.value = '';
 				} else {
 					alert(message);
 				}
@@ -1332,7 +1397,7 @@
 		}
 
 		function change_num_squares(ax, num) {
-			loading(true);
+			loading(true, 'Changing number of squares');
 			navigator.sendBeacon(
 				'/board_access',
 				new Blob(
@@ -1436,24 +1501,29 @@
 
 			// maps
 			ctx.globalAlpha = map_opacity;
-			// for (let i = maps.length - 1; i >= 0; i--) {
-			// 	if (maps[i].visible) {
-			// 		ctx.drawImage(
-			// 			map_images[maps[i].image_id],
-			// 			top_left_loc.x,
-			// 			top_left_loc.y,
-			// 			square_size * num_squares.x,
-			// 			square_size * num_squares.y
-			// 		);
-			// 	}
-			// }
-			ctx.drawImage(
-				visible_map_image,
-				top_left_loc.x,
-				top_left_loc.y,
-				square_size * num_squares.x,
-				square_size * num_squares.y
-			);
+			if (super_secret) {
+				ctx.drawImage(
+					visible_map_image,
+					top_left_loc.x,
+					top_left_loc.y,
+					square_size * num_squares.x,
+					square_size * num_squares.y
+				);
+			} else {
+				for (let i = maps.length - 1; i >= 0; i--) {
+					if (maps[i].visible) {
+						ctx.drawImage(
+							map_images[maps[i].image_id],
+							top_left_loc.x,
+							top_left_loc.y,
+							square_size * num_squares.x,
+							square_size * num_squares.y
+						);
+					}
+				}
+			}
+			
+			
 			ctx.globalAlpha = 1; 
 
 
