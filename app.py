@@ -245,6 +245,14 @@ def get(thing, key):
         return thing[key]
     return None
 
+def blank_square(mask=False):
+    return {
+        'mask': mask,
+        'unique': False,
+        'content': None
+    }
+
+
 
 class Board(db.Model):
     __tablename__ = "boards"
@@ -264,19 +272,20 @@ class Board(db.Model):
     visible_map = relationship("ImageFile", foreign_keys=[visible_map_id])
     num_mask_squares = db.Column(db.Integer, default=0)
     visible_map_up_to_date = db.Column(db.Boolean, default=True)
+    grid_offset = db.Column(db.Text, default="None")
+
 
     def __init__(self, name, owner):
         self.name = name
         self.owner = owner
         self.current_users = []
-        self.grid_data = [[None] * 5 for _ in range(5)]
+        self.grid_data = [[blank_square()] * 5 for _ in range(5)]
         self.maps = []
         self.visible_map = ImageFile(owner=self.owner, image=get_blank_image(), name="visible map")
         self.composite_map = ImageFile(owner=self.owner, image=get_blank_image(), name="composite map")
         db.session.add(self.visible_map)
         db.session.commit()
         self.members = []
-
 
     def add_user(self, user):
         if user not in self.current_users:
@@ -294,34 +303,82 @@ class Board(db.Model):
     #     self.grid_data = data
     #     db.session.commit()
 
+    def find(self, unique):
+        ret = []
+        for r in range(len(self.grid_data)):
+            for c in range(len(self.grid_data[r])):
+                if get(self.grid_data[r][c], 'unique') == unique:
+                    ret.append({'r': r, 'c': c})
+        return ret
 
-    def set_square(self, square, content):
+    # def toggle_unique(self, square):
+    #     if self.grid_data[square['r']][square['c']]['unique']:
+    #         self.grid_data[square['r']][square['c']]['unique'] = False
+    #     elif self.grid_data[square['r']][square['c']]['content']:
+    #         t = self.grid_data[square['r']][square['c']]['content']['type']
+    #         i = self.grid_data[square['r']][square['c']]['content']['id']
+    #         self.grid_data[square['r']][square['c']]['unique'] = f'{t}-{i}'
+        
+    #     flag_modified(self, "grid_data")
+    #     db.session.commit()
+        
+
+    def set_square(self, square, data):
+        r, c = square['r'], square['c']
         changes = []
+        found = False
+        content = {}
 
-        if get(content, 'type') == 'avatar':
-            for r in range(len(self.grid_data)):
-                for c in range(len(self.grid_data[r])):
-                    if get(self.grid_data[r][c], 'type') == 'avatar' and get(self.grid_data[r][c], 'id') == get(content, 'id'):
-                        del self.grid_data[r][c]['type']
-                        del self.grid_data[r][c]['id']
-                        changes.append((r, c))
-        
-        r = square['r']
-        c = square['c']
-        if self.grid_data[r][c] is None:
-            self.grid_data[r][c] = {}
-        if content is None:
-            if get(self.grid_data[r][c], 'type') is not None and get(self.grid_data[r][c], 'id') is not None:
-                del self.grid_data[r][c]['type']
-                del self.grid_data[r][c]['id']
+        if data is None:
+            self.grid_data[r][c] = blank_square(mask=self.grid_data[r][c]['mask'])
+
+        # this doesn't work unless the data being sent knows its unique -- so either do that (messy on user side) or just search for unique tag with what it would be
+        # or third option, set token to unique on board level (requires change to token/board class)
+        elif data['unique']:
+            for sq in self.find(data['unique']):
+                changes.append((sq['r'], sq['c']))
+                mask = self.grid_data[sq['r']][sq['c']]['mask']
+                if not found:
+                    content = self.grid_data[sq['r']][sq['c']]['content'].copy()
+                self.grid_data[sq['r']][sq['c']] = blank_square(mask=mask)
+            
+            self.grid_data[r][c]['unique'] = data['unique']
+            if found:
+                self.grid_data[r][c]['content'] = content
+                for key in data['content']:
+                    self.grid_data[r][c]['content'][key] = data['content'][key]
+            else:
+                self.grid_data[r][c]['content'] = data['content']
+
         else:
-            for key in content:
-                self.grid_data[square['r']][square['c']][key] = content[key]
-        
-        changes.append((square['r'], square['c']))
+            self.grid_data[r][c]['unique'] = False
+            if self.grid_data[r][c]['content'] is None:
+                self.grid_data[r][c]['content'] = {}
+            for key in data['content']:
+                self.grid_data[r][c]['content'][key] = data['content'][key]
+
+        changes.append((r, c))
         flag_modified(self, "grid_data")
         db.session.commit()
-        return [[{'r':r, 'c':c}, self.get_square({'r':r, 'c':c})] for (r,c) in changes]
+        return [[{'r':r_, 'c':c_}, self.get_square({'r':r_, 'c':c_})] for (r_,c_) in changes]
+
+    def has_mask(self, square):
+        return self.grid_data[square['r']][square['c']] is not None and 'mask' in self.grid_data[square['r']][square['c']] and self.grid_data[square['r']][square['c']]['mask']
+    
+    # def touch(self, square):
+    #     if self.grid_data[square['r']][square['c']] is None:
+    #         self.grid_data[square['r']][square['c']] = {}
+    #     flag_modified(self, "grid_data")
+    #     db.session.commit()
+
+    def toggle_mask_square(self, square):
+        self.grid_data[square['r']][[square['c']]]['mask'] = not self.grid_data[square['r']][square['c']]['mask']
+        flag_modified(self, "grid_data")
+        if self.super_secret:
+            self.update_visible_map()
+        else:
+            self.visible_map_up_to_date = False
+        db.session.commit()
 
     def get_square(self, square):
         if self.super_secret and self.has_mask(square):
@@ -359,9 +416,7 @@ class Board(db.Model):
                 img.paste(overlay, (0, 0))
         self.composite_map.set_image(img)
         self.update_visible_map()
-        
-
-
+    
     def update_visible_map(self):
         img = self.composite_map.to_img()
         black_square = Image.new("RGB", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 255))
@@ -394,7 +449,7 @@ class Board(db.Model):
     def reset(self):
         for i in range(len(self.grid_data)):
             for j in range(len(self.grid_data[0])):
-                self.grid_data[i][j] = None
+                self.grid_data[i][j] = blank_square()
         flag_modified(self, "grid_data")
         
         if self.super_secret:
@@ -476,26 +531,7 @@ class Board(db.Model):
         if super_secret:
             self.update_composite_map()
 
-    def has_mask(self, square):
-        return self.grid_data[square['r']][square['c']] is not None and 'mask' in self.grid_data[square['r']][square['c']] and self.grid_data[square['r']][square['c']]['mask']
-    
-    def touch(self, square):
-        if self.grid_data[square['r']][square['c']] is None:
-            self.grid_data[square['r']][square['c']] = {}
-        flag_modified(self, "grid_data")
-        db.session.commit()
-
-    def toggle_mask_square(self, square):
-        self.touch(square)
-        if 'mask' not in self.grid_data[square['r']][square['c']]:
-            self.grid_data[square['r']][square['c']]['mask'] = False
-        self.grid_data[square['r']][square['c']]['mask'] = not self.grid_data[square['r']][square['c']]['mask']
-        flag_modified(self, "grid_data")
-        if self.super_secret:
-            self.update_visible_map()
-        else:
-            self.visible_map_up_to_date = False
-        db.session.commit()
+   
         
     def get_dims(self):
         return len(self.grid_data[0]), len(self.grid_data)
@@ -510,6 +546,11 @@ class Board(db.Model):
             return ret
             
         return self.grid_data
+
+    def set_grid_offset(self, offset):
+        self.grid_offset = offset
+        db.session.commit()
+
 
     def __repr__(self):
         return f'<name: {self.name}, owner: {self.owner.username}>'
@@ -1113,7 +1154,7 @@ def board_access():
     if data['board_method'] == 'set_square':
         if board.has_mask(data['square']) and not can_edit:
             return 'You can\'t edit a masked square', 403
-        changes = board.set_square(data['square'], data['content'])
+        changes = board.set_square(data['square'], data['data'])
         socketio.emit(
             'update squares',
             {'changes': changes},
@@ -1168,7 +1209,21 @@ def board_access():
             {'maps': board.maps},
             room=str(board.board_id)
         )
-    
+    elif data['board_method'] == 'set_grid_offset':
+        board.set_grid_offset(data['offset'])
+        socketio.emit(
+            'set grid_offset',
+            {'offset': board.grid_offset},
+            room=str(board.board_id)
+        )
+    elif data['board_method'] == 'toggle_unique':
+        changes = board.toggle_unique(data['square'])
+        socketio.emit(
+            'udate squares',
+            {'changes': changes},
+            room=str(board.board_id)
+        )
+
     elif not is_owner:
         return 'You don\'t have permission to do that', 403
 
@@ -1296,7 +1351,8 @@ def board(board_id):
                     icons=icons,
                     maps=board.maps if can_edit or not board.super_secret else [],
                     can_edit=can_edit,
-                    super_secret=board.super_secret
+                    super_secret=board.super_secret,
+                    grid_offset=board.grid_offset
                     # is_owner=(board.owner_id == user.user_id)
                 )
         

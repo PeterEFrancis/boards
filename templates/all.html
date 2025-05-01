@@ -109,6 +109,7 @@
                     <th scope="col">Users Can Edit</th>
                     <th scope="col">Super Secret</th>
                     <th scope="col">Visible Map Up to Date</th>
+                    <th scope="col">Grid Offset</th>
                 </tr>
             </thead>
             <tbody>
@@ -134,12 +135,16 @@
                         </ul>
                       </td>
                     <td style="font-family: monospace">
+                        {{ board.grid_data|tojson }}
+                        <br><br>
                         <table class="grid-table table-sm table-bordered">
                             {% for row in board.grid_data %}
                                 <tr>
                                     {% for el in row %}
-                                    <td>
-                                        {{ el }}
+                                    <td width="500px">
+                                        <strong>Mask:</strong> {{ el['mask'] }}<br>
+                                        <strong>Unique:</strong> {{ el['unique'] }}<br>
+                                        <strong>Content:</strong> {{ el['content'] }}<br>
                                         <!-- <div class="grid-item" onclick='alert(JSON.stringify({{el|tojson}}))'>
                                             {% if el['type'] == "avatar" %}
                                             <img class="img-fluid rounded-circle" src="/image/{{el['image_id']}}" alt="Avatar">
@@ -163,6 +168,7 @@
                     <td>{{ board.users_can_edit }}</td>
                     <td>{{ board.super_secret }}</td>
                     <td>{{ board.visible_map_up_to_date }}</td>
+                    <td>{{ board.grid_offset }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

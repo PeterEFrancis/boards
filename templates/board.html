@@ -276,7 +276,7 @@
 								  
 								<hr class="bg-light">
 								<form id="upload_map_form" class="mb-3">
-									<label for="image" class="form-label">Upload Map</label>
+									<label for="upload-map-file" class="form-label">Upload Map</label>
 									<input type="hidden" name="board_method" value="upload_map" required>
 									<input type="hidden" name="board_id" value="{{board.board_id}}" required>
 									<input id="upload-map-file" type="file" class="form-control" name="image" required>
@@ -300,6 +300,17 @@
 									</div>
 								</div>
 								
+								<hr class="bg-light">
+
+								<div class="w-100">
+									<label for="offset-dropdown" class="form-label">Grid Offset</label>
+									<select id="offset-dropdown" class="form-select" onchange="change_grid_offset(this.value)">
+										<option id="offset-dropdown-None" value="None" {% if board.grid_offset == 'None' %}selected{% endif %}>None</option>
+										<option id="offset-dropdown-Rows" value="Rows" {% if board.grid_offset == 'Rows' %}selected{% endif %}>Rows</option>
+										<option id="offset-dropdown-Columns" value="Columns" {% if board.grid_offset == 'Columns' %}selected{% endif %}>Columns</option>
+									</select>
+								</div>
+
 								<hr class="bg-light">
 								
 								<button type="submit" class="btn btn-danger w-100 my-2" onclick="reset()">Clear Board</button>
@@ -371,10 +382,62 @@
 			</div>
 		</div>
 
-		<div id="menu" class="position-absolute bg-dark text-light border rounded shadow p-2" style="display:none; z-index:1060; width:200px;">
+		<!-- <div id="menu" class="position-absolute bg-dark text-light border rounded shadow p-2" style="display:none; z-index:1060; width:200px;">
 			<input type="text" id="tokenSearch" class="form-control form-control-sm mb-2 bg-light text-dark border-0 rounded" placeholder="Search...">
 			<div id="icon-container" class="d-flex flex-wrap"></div>
-		</div>
+		</div> -->
+		<div id="menu" class="position-absolute bg-dark text-light border rounded shadow p-2" style="display:none; z-index:1060; width:200px; height: 250px">
+			<!-- Smaller tab headers -->
+			<ul class="nav nav-tabs mb-2" id="menuTabs" role="tablist" style="font-size: 0.85rem;">
+			  <li class="nav-item" role="presentation">
+				<button class="nav-link active py-1 px-2" id="place-tab" data-bs-toggle="tab" data-bs-target="#place" type="button" role="tab">Place</button>
+			  </li>
+			  <li id="aura-tab-li" class="nav-item" role="presentation">
+				<button class="nav-link py-1 px-2" id="aura-tab" data-bs-toggle="tab" data-bs-target="#menu-aura" type="button" role="tab">Aura</button>
+			  </li>
+			</ul>
+		  
+			<!-- Tab contents -->
+			<div class="tab-content">
+			  <!-- Place tab -->
+			  <div class="tab-pane fade show active" id="place" role="tabpanel" aria-labelledby="place-tab">
+				<input type="text" id="tokenSearch" class="form-control form-control-sm mb-2 bg-light text-dark border-0 rounded" placeholder="Search...">
+				<div id="icon-container" class="d-flex flex-wrap"></div>
+			  </div>
+		  
+			  <!-- Aura tab -->
+			  <div class="tab-pane fade" id="menu-aura" role="tabpanel" aria-labelledby="aura-tab">
+				<form id="edit-aura-form" class="mt-3">
+					<div class="form-check">
+						<input class="form-check-input" type="checkbox" id="aura-toggle" onchange="update_aura()">
+						<label class="form-check-label" for="aura-toggle">Enable</label>
+					</div>
+					<div class="d-flex">
+						<div class="mb-2">
+							<label for="aura-color" class="form-label">Color</label>
+							<input type="color" id="aura-color" class="form-control form-control-color" value="#ffff00" onchange="update_aura()">
+						</div>
+						<div class="mb-2 mx-3">
+							<label for="aura-size" class="form-label">Size</label>
+							<input type="number" id="aura-size" class="form-control" min="1" step="1" value="1" onchange="update_aura()">
+						</div>
+					</div>
+					<div class="mb-2">
+						<label for="aura-shape" class="form-label">Shape (Distance Norm)</label>
+						<select id="aura-shape" class="form-select" onchange="update_aura()">
+							<option value="diamond">Diamond (L1)</option>
+							<option value="circle" selected>Circle (L2)</option>
+							<option value="square">Square (L&infin;)</option>
+						</select>
+					</div>
+				
+				
+					
+				</form>
+			  </div>
+			</div>
+		  </div>
+		  
 	</body>
 
 
@@ -414,9 +477,26 @@
 
 		var menu_open = false;
 		
-		let saved_selected_square = localStorage.getItem('selected_square+{{ board.board_id }}');
-		var selected_square = saved_selected_square ? JSON.parse(saved_selected_square) : null;
+
+		function set_selected_square(rc) {
+			if (rc) {
+				selected_square = rc;
+			} else {
+				selected_square = null;
+				
+			}
+			localStorage.setItem('selected_square+{{ board.board_id }}', JSON.stringify(selected_square));
 		
+			
+			update_aura_menu();
+		
+		}
+
+		var selected_square;
+
+		
+		
+
 		function update_color(part, c) {
 			colors[part] = c;
 			update_display();
@@ -463,6 +543,10 @@
 		function close_menu() {
 			menu_open = false;
 			menu.style.display = "none";
+			document.getElementById('place-tab').classList.add('active');
+			document.getElementById('place').classList.add('show', 'active');
+			document.getElementById('aura-tab').classList.remove('active');
+			document.getElementById('menu-aura').classList.remove('show', 'active');
 		}
 
 
@@ -487,25 +571,48 @@
 			update_display();
 		};
 
-		function on_grid(e) {
-			var rect = canvas.getBoundingClientRect();
-			let c = Math.floor((e.clientX - rect.left - top_left_loc.x) / square_size);
-			let r = Math.floor((e.clientY - rect.top - top_left_loc.y) / square_size);
-			if (r >= 0 && r < num_squares.y && c >= 0 && c < num_squares.x) {
-				return {r:r, c:c};
+		function event_to_coords(e) {
+			let rect = canvas.getBoundingClientRect();
+			let x = e.clientX - rect.left - top_left_loc.x;
+			let y = e.clientY - rect.top - top_left_loc.y;
+			return {x:x, y:y};
+		}
+
+		function on_grid(coords) {
+			let {x, y} = coords;
+			let r, c = 0;
+
+			if (grid_offset == 'Rows') {
+				r = Math.floor(y / square_size);
+				c = Math.floor((x - (r % 2 == 0 ? square_size / 2 : 0)) / square_size);
+				if (r >= 0 && r < num_squares.y && c >= 0 && c < num_squares.x) {
+					return {r:r, c:c};
+				}
+				return false;
+			} else if (grid_offset == 'Columns') {
+				c = Math.floor(x / square_size);
+				r = Math.floor((y - (c % 2 == 0 ? square_size / 2 : 0)) / square_size);
+				if (r >= 0 && r < num_squares.y && c >= 0 && c < num_squares.x) {
+					return {r:r, c:c};
+				}
+				return false
 			}
+			else {
+				r = Math.floor(y / square_size);
+				c = Math.floor(x / square_size);
+				if (r >= 0 && r < num_squares.y && c >= 0 && c < num_squares.x) {
+					return {r:r, c:c};
+				}
+				return false;
+			}
+			
 			return false;
+			
 		}
 
 		function handle_click(e) {
-			let rc = on_grid(e);
-			if (rc) {
-				selected_square = rc;
-			} else {
-				selected_square = null;
-				
-			}
-			localStorage.setItem('selected_square+{{ board.board_id }}', JSON.stringify(selected_square));
+			let rc = on_grid(event_to_coords(e));
+			set_selected_square(rc);
 			close_menu();
 			update_display()
 
@@ -574,7 +681,10 @@
 		  }
 		};
 
-
+		
+		canvas.oncontextmenu = (e) => {
+			e.preventDefault();			
+		};
 
 
 
@@ -588,7 +698,7 @@
 				for (let token_id in icons['token']) {
 					if (e.code === 'Key' + icons['token'][token_id].key && document.activeElement === document.body) {
 						e.preventDefault();
-						set_square(selected_square, {'id':token_id, 'type':'token'});
+						set_square(selected_square, {'content': {'id':token_id, 'type':'token'}});
 						break;
 					}
 				}
@@ -620,13 +730,16 @@
 					e.preventDefault();
 					if (!selected_square) return;
 
-					set_square(selected_square, {'id':'{{user.user_id}}', 'type':'avatar'});
+					set_square(selected_square, {
+						'content': {'id':'{{user.user_id}}', 'type':'avatar'},
+						'unique': 'avatar-' + '{{user.user_id}}'
+					});
 				}
 
 				if (e.code === 'ArrowUp' && document.activeElement === document.body) {
 					e.preventDefault();
 					if (!selected_square) return;
-					selected_square.r = Math.max(0, selected_square.r - 1);
+					set_selected_square({r: (selected_square.r - 1 + num_squares.y) % num_squares.y, c: selected_square.c});
 					close_menu();
 					update_display()
 				}
@@ -634,7 +747,7 @@
 				if (e.code === 'ArrowDown' && document.activeElement === document.body) {
 					e.preventDefault();
 					if (!selected_square) return;
-					selected_square.r = Math.min(num_squares.y - 1, selected_square.r + 1);
+					set_selected_square({r: (selected_square.r + 1 + num_squares.y) % num_squares.y, c: selected_square.c});
 					close_menu();
 					update_display()
 				}
@@ -642,7 +755,7 @@
 				if (e.code === 'ArrowLeft' && document.activeElement === document.body) {
 					e.preventDefault();
 					if (!selected_square) return;
-					selected_square.c = Math.max(0, selected_square.c - 1);
+					set_selected_square({c: (selected_square.c - 1 + num_squares.x) % num_squares.x, r: selected_square.r});
 					close_menu();
 					update_display()
 				}
@@ -650,14 +763,14 @@
 				if (e.code === 'ArrowRight' && document.activeElement === document.body) {
 					e.preventDefault();
 					if (!selected_square) return;
-					selected_square.c = Math.min(num_squares.x - 1, selected_square.c + 1);
+					set_selected_square({c: (selected_square.c + 1 + num_squares.x) % num_squares.x, r: selected_square.r});
 					close_menu();
 					update_display()
 				}
 
 				if (e.code === 'Escape' && document.activeElement === document.body) {
 					e.preventDefault();
-					selected_square = null;
+					set_selected_square(null);
 					update_display()
 				}
 
@@ -722,6 +835,14 @@
 		var square_size;
 		
 		var map_order;
+
+		var grid_offset = JSON.parse('{{ grid_offset|tojson|safe }}');
+
+
+		let saved_selected_square = localStorage.getItem('selected_square+{{ board.board_id }}');
+		set_selected_square(saved_selected_square ? JSON.parse(saved_selected_square) : null);
+
+
 
 
 		function make_map_DOM(map) {
@@ -815,10 +936,13 @@
 				img.dataset.name = icons[type][id].name;
 				img.addEventListener('click', () => {
 					if (selected_square) {
-						set_square(selected_square, {
-							type: type,
-							id: id
-						});
+						set_square(
+							selected_square, 
+							{
+								content: {type: type, id: id},
+								unique: type == 'avatar' ? 'avatar-' + '{{user.user_id}}' : false
+							}
+						);
 					}
 				});
 				icon_container.appendChild(img);
@@ -855,6 +979,31 @@
 			// Append sorted images back to container
 			images.forEach(img => icon_container.appendChild(img));
 		}
+
+		function update_aura_menu() {
+			if (!selected_square) return;
+
+			let square_data = board[selected_square.r][selected_square.c];
+			console.log(square_data)
+			if (square_data.content) {
+				document.getElementById('menu-aura').classList.remove('d-none');
+				document.getElementById('aura-tab-li').classList.remove('d-none');
+				if (square_data.content.aura) {
+					document.getElementById('aura-toggle').checked = square_data.content.aura.enabled || false;
+					document.getElementById('aura-color').value = square_data.content.aura.color || '#ffff00';
+					document.getElementById('aura-size').value = square_data.content.aura.size || 1;
+					document.getElementById('aura-shape').value = square_data.content.aura.shape || 'circle';
+				}
+			} else {
+				document.getElementById('menu-aura').classList.add('d-none');
+				document.getElementById('aura-tab-li').classList.add('d-none');
+			}
+
+
+			
+
+		}
+
 
 		const map_select = document.getElementById('map-select');
 
@@ -1055,6 +1204,8 @@
 			}
 
 			initialize();
+
+
 			
 
 			var socket = io({transports: ['websocket']});
@@ -1323,6 +1474,15 @@
 				}
 			});
 
+			socket.on('set grid_offset', function(msg) {
+				console.log('socket: set grid_offset');
+				Array.from(document.getElementById('offset-dropdown').children).forEach(option => option.selected = false);
+				document.getElementById('offset-dropdown-' + msg.offset).selected = true;
+				grid_offset = msg.offset;
+				update_display();
+
+			});
+
 
 		};
 
@@ -1412,7 +1572,7 @@
 			);
 		}
 
-		function set_square(square, content) {
+		function set_square(square, data) {
 			close_menu();
 			navigator.sendBeacon(
 				'/board_access',
@@ -1420,7 +1580,7 @@
 					'board_method': 'set_square',
 					'board_id': "{{board.board_id}}",
 					'square': square,
-					'content': content
+					'data': data
 				})], { type: 'application/json' })
 			);
 		}
@@ -1436,13 +1596,41 @@
 			);
 		}
 
+		function change_grid_offset(offset) {
+			navigator.sendBeacon(
+				'/board_access',
+				new Blob([JSON.stringify({
+					'board_method': 'set_grid_offset',
+					'board_id': "{{board.board_id}}",
+					'offset': offset
+				})], { type: 'application/json' })
+			);
+		}
 
-		// function leave() {
-		// 	navigator.sendBeacon("/leave");
+		function update_aura() {
+			let enabled = document.getElementById('aura-toggle').checked || false; // make these defaults variables
+			let color = document.getElementById('aura-color').value || '#ffff00';
+			let size = document.getElementById('aura-size').value || 1;
+			let shape = document.getElementById('aura-shape').value
+		}
+
+
+		// function toggle_unique(bool) {
+		// 	navigator.sendBeacon(
+		// 		'/board_access',
+		// 		new Blob([JSON.stringify({
+		// 			'board_method': 'toggle_unique',
+		// 			'board_id': "{{board.board_id}}",
+		// 			'square': selected_square
+		// 		})], { type: 'application/json' })
+		// 	);
 		// }
 
 
 
+		// function leave() {
+		// 	navigator.sendBeacon("/leave");
+		// }
 
 
 
@@ -1464,7 +1652,7 @@
 			return gcd(b, a % b);
 		}
 
-		function box_counting_metrix(x, y) {
+		function box_counting_metric(x, y) {
 			let count = 0;
 			for (a = 0; a < x; a++) {
 				for (b = 0; b < y; b++) {
@@ -1477,6 +1665,12 @@
 		}
 
 
+		function get_square_loc(r, c) {
+			return {
+				x: top_left_loc.x + c * square_size + (grid_offset=='Rows' && r % 2 == 0 ? square_size / 2 : 0),
+				y: top_left_loc.y + r * square_size + (grid_offset=='Columns' && c % 2 == 0 ? square_size / 2 : 0)
+			};
+		}
 
 
 		function update_display() {
@@ -1501,13 +1695,15 @@
 
 			// maps
 			ctx.globalAlpha = map_opacity;
+			let map_height = square_size * num_squares.y;
+			let map_width = square_size * num_squares.x;
 			if (super_secret) {
 				ctx.drawImage(
 					visible_map_image,
 					top_left_loc.x,
 					top_left_loc.y,
-					square_size * num_squares.x,
-					square_size * num_squares.y
+					map_width,
+					map_height
 				);
 			} else {
 				for (let i = maps.length - 1; i >= 0; i--) {
@@ -1516,24 +1712,18 @@
 							map_images[maps[i].image_id],
 							top_left_loc.x,
 							top_left_loc.y,
-							square_size * num_squares.x,
-							square_size * num_squares.y
+							map_width,
+							map_height
 						);
 					}
 				}
 			}
-			
-			
+		
 			ctx.globalAlpha = 1; 
 
 
-			// mask
-			ctx.fillStyle = colors.mask;
-			for (let i = 0; i < num_squares.y; i++) {
-				for (let j = 0; j < num_squares.x; j++) {
-					
-				}
-			}
+
+
 
 
 			// fill squares
@@ -1541,58 +1731,49 @@
 			for (let type of TYPES) {
 				for (let i = 0; i < num_squares.y; i++) {
 					for (let j = 0; j < num_squares.x; j++) {
-						if (board[i][j] != null) {
-							let x = j * square_size;
-							let y = i * square_size;
-							if (board[i][j] && board[i][j].mask) {
-								ctx.fillStyle = colors.mask;
-								ctx.fillRect(
-									top_left_loc.x + x,
-									top_left_loc.y + y,
-									square_size,
-									square_size
-								);
-							} else {
+						// if (grid_offset == 'Rows' && i % 2 == 0 && j == num_squares.x - 1) continue;
+						// if (grid_offset == 'Columns' && j % 2 == 0 && i == num_squares.y - 1) continue;
+						let sq = get_square_loc(i, j);
+						if (board[i][j].mask) {
+							ctx.fillStyle = colors.mask;
+							ctx.fillRect(sq.x, sq.y, square_size, square_size);
+						} else if (board[i][j].content) {	
+							if (board[i][j].content.type == 'token') {
+								let img = icon_images[board[i][j].content.type][board[i][j].content.id];
+								let size = icons[board[i][j].content.type][board[i][j].content.id].size;
+								// size *= board[i][j].content.size || 1;
+								if (img?.complete) {
+									ctx.drawImage(
+										img,
+										sq.x - square_size * (size - 1) / 2,
+										sq.y - square_size * (size - 1) / 2,
+										square_size * size,
+										square_size * size
+									);
+								}
+							}
+							else if (board[i][j].content.type == "avatar") {
+								let img = icon_images[board[i][j].content.type][board[i][j].content.id];
+								if (img?.complete) {
+									const centerX = sq.x + square_size / 2;
+									const centerY = sq.y + square_size / 2;
+									const radius = square_size / 2 - square_size / 10;
 
-								if (board[i][j].type == type) {
-									if (board[i][j].type == 'token') {
-										let img = icon_images[board[i][j].type][board[i][j].id];
-										let size = icons[board[i][j].type][board[i][j].id].size;
-										// size *= board[i][j].size || 1;
-										if (img?.complete) {
-											ctx.drawImage(
-												img,
-												top_left_loc.x + x - square_size * (size - 1) / 2,
-												top_left_loc.y + y - square_size * (size - 1) / 2,
-												square_size * size,
-												square_size * size
-											);
-										}
-									}
-									else if (board[i][j].type == "avatar") {
-										let img = icon_images[board[i][j].type][board[i][j].id];
-										if (img?.complete) {
-											const centerX = top_left_loc.x + x + square_size / 2;
-											const centerY = top_left_loc.y + y + square_size / 2;
-											const radius = square_size / 2 - square_size / 10;
+									ctx.save();
+									ctx.beginPath();
+									ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+									ctx.closePath();
+									ctx.clip(); // Set the clip to the circular path
 
-											ctx.save();
-											ctx.beginPath();
-											ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-											ctx.closePath();
-											ctx.clip(); // Set the clip to the circular path
+									ctx.drawImage(
+										img,
+										sq.x + square_size / 10,
+										sq.y + square_size / 10,
+										square_size * 0.8,
+										square_size * 0.8
+									);
 
-											ctx.drawImage(
-												img,
-												top_left_loc.x + x + square_size / 10,
-												top_left_loc.y + y + square_size / 10,
-												square_size * 0.8,
-												square_size * 0.8
-											);
-
-											ctx.restore();
-										}
-									}
+									ctx.restore();
 								}
 							}
 						}
@@ -1600,38 +1781,63 @@
 				}
 			}
 
+
+
+
+			// auras
+			ctx.globalAlpha = 0.5;
+			for (let i = 0; i < num_squares.y; i++) {
+				for (let j = 0; j < num_squares.x; j++) {
+					if (board[i][j].mask) continue;
+
+					if (board[i][j].content && board[i][j].content.aura) {
+						ctx.fillStyle = board[i][j].content.aura.color;
+						let sq = get_square_loc(i, j);
+						ctx.beginPath();
+						ctx.arc(
+							sq.x + square_size / 2,
+							sq.y + square_size / 2,
+							square_size / 2,
+							0,
+							Math.PI * 2
+						);
+						ctx.fill();
+					}
+
+				}
+			}
+			ctx.globalAlpha = 1; // Reset opacity
+
+
+
+
+
+
+
+
+
 			// add the grid lines
-			ctx.fillStyle = colors.grid;
-			for (let i = 0; i <= num_squares.x; i++) {
-				ctx.fillRect(
-					top_left_loc.x + i * square_size - LINE_WIDTH / 2,
-					top_left_loc.y,
-					LINE_WIDTH,
-					square_size * num_squares.y
-				);
+			for (let i = 0; i < num_squares.y; i++) {
+				for (let j = 0; j < num_squares.x; j++) {
+					// if (grid_offset == 'Rows' && i % 2 == 0 && j == num_squares.x - 1) continue;
+					// if (grid_offset == 'Columns' && j % 2 == 0 && i == num_squares.y - 1) continue;
+					ctx.strokeStyle = colors.grid;
+					ctx.lineWidth = 1;
+					let sq = get_square_loc(i, j);
+					ctx.beginPath();
+					ctx.rect(sq.x, sq.y, square_size, square_size);
+					ctx.stroke();
+				}
 			}
 
-			for (let i = 0; i <= num_squares.y; i++) {
-				ctx.fillRect(
-					top_left_loc.x,
-					top_left_loc.y + i * square_size - LINE_WIDTH / 2,
-					square_size * num_squares.x,
-					LINE_WIDTH
-				);
-			}
-		
 
 			// draw selected square
 			if (selected_square) {
 				ctx.lineWidth = 5;
 				ctx.strokeStyle = colors.selection;
+				let sq = get_square_loc(selected_square.r, selected_square.c);
 				ctx.beginPath();
-				ctx.rect(
-					top_left_loc.x + selected_square.c * square_size,
-					top_left_loc.y + selected_square.r * square_size,
-					square_size,
-					square_size
-				);
+				ctx.rect(sq.x, sq.y, square_size, square_size);
 				ctx.stroke();
 
 				if (distance_metric != 'none') {
@@ -1650,8 +1856,24 @@
 
 					// If the user's avatar is placed, calculate the distance
 					if (userAvatarPosition) {
-						const diffX = Math.abs(selected_square.c - userAvatarPosition.c);
-						const diffY = Math.abs(selected_square.r - userAvatarPosition.r);
+						let diffX = selected_square.c - userAvatarPosition.c;
+						let diffY = selected_square.r - userAvatarPosition.r;
+
+						if (grid_offset == 'Rows') {
+							if ((selected_square.r - userAvatarPosition.r) % 2 != 0) {
+								diffX -= 0.5;
+							}
+						}
+						if (grid_offset == 'Columns') {
+							if ((selected_square.c - userAvatarPosition.c) % 2 != 0) {
+								diffY -= 0.5;
+							}
+						}
+
+						diffX = Math.abs(diffX);
+						diffY = Math.abs(diffY);
+
+						// console.log(diffX, diffY);
 
 						let dist;
 						if (distance_metric === 'L1') {
@@ -1661,7 +1883,7 @@
 						} else if (distance_metric === 'Li') {
 							dist = Math.max(diffX, diffY);
 						} else if (distance_metric == 'box') {
-							dist = box_counting_metrix(diffX, diffY);
+							dist = box_counting_metric(diffX, diffY);
 						}
 
 						dist *= distance_multiplier;
@@ -1673,8 +1895,8 @@
 						ctx.textBaseline = "bottom";
 						ctx.fillText(
 							dist.toFixed(2),
-							top_left_loc.x + selected_square.c * square_size + square_size / 2,
-							top_left_loc.y + selected_square.r * square_size - square_size / 20
+							sq.x + square_size / 2,
+							sq.y - square_size / 20
 						);
 					}
 				}
