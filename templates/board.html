@@ -1006,6 +1006,11 @@
 					document.getElementById('aura-color').value = square_data.content.aura.color || '#ffff00';
 					document.getElementById('aura-size').value = square_data.content.aura.size || 1;
 					document.getElementById('aura-shape').value = square_data.content.aura.shape || 'circle';
+				} else {
+					document.getElementById('aura-toggle').checked = false;
+					document.getElementById('aura-color').value = '#ffff00';
+					document.getElementById('aura-size').value = 1;
+					document.getElementById('aura-shape').value = 'circle';
 				}
 			} else {
 				document.getElementById('menu-aura').classList.add('d-none');
@@ -1823,12 +1828,6 @@
 							}
 						}
 						
-						if (board[i][j].mask) {
-							ctx.fillStyle = colors.mask;
-							ctx.globalAlpha = colors.maskOpacity;
-							ctx.fillRect(sq.x, sq.y, square_size, square_size);
-							ctx.globalAlpha = 1;
-						}
 					}
 				}
 			}
@@ -1883,7 +1882,20 @@
 
 
 
-
+			// fill masks
+			for (let type of TYPES) {
+				for (let i = 0; i < num_squares.y; i++) {
+					for (let j = 0; j < num_squares.x; j++) {
+						let sq = get_square_loc(i, j);						
+						if (board[i][j].mask) {
+							ctx.fillStyle = colors.mask;
+							ctx.globalAlpha = colors.maskOpacity;
+							ctx.fillRect(sq.x, sq.y, square_size, square_size);
+							ctx.globalAlpha = 1;
+						}
+					}
+				}
+			}
 
 
 
