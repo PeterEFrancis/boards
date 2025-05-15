@@ -272,7 +272,7 @@ class Board(db.Model):
     visible_map = relationship("ImageFile", foreign_keys=[visible_map_id])
     num_mask_squares = db.Column(db.Integer, default=0)
     visible_map_up_to_date = db.Column(db.Boolean, default=True)
-    grid_offset = db.Column(db.Text, default="None")
+    grid_offset = db.Column(JSON, default=lambda: {"type": "None", "amount": 0})
 
 
     def __init__(self, name, owner):
@@ -332,7 +332,8 @@ class Board(db.Model):
         if data is None:
             self.grid_data[r][c] = blank_square(mask=self.grid_data[r][c]['mask'])
 
-        # this doesn't work unless the data being sent knows its unique -- so either do that (messy on user side) or just search for unique tag with what it would be
+        # this doesn't work unless the data being sent knows its unique -- so either do 
+        # that (messy on user side) or just search for unique tag with what it would be
         # or third option, set token to unique on board level (requires change to token/board class)
         elif data['unique']:
             for sq in self.find(data['unique']):
@@ -340,6 +341,7 @@ class Board(db.Model):
                 mask = self.grid_data[sq['r']][sq['c']]['mask']
                 if not found:
                     content = self.grid_data[sq['r']][sq['c']]['content'].copy()
+                    found = True
                 self.grid_data[sq['r']][sq['c']] = blank_square(mask=mask)
             
             self.grid_data[r][c]['unique'] = data['unique']
@@ -362,6 +364,13 @@ class Board(db.Model):
         db.session.commit()
         return [[{'r':r_, 'c':c_}, self.get_square({'r':r_, 'c':c_})] for (r_,c_) in changes]
 
+    def set_aura(self, square, aura):
+        r, c = square['r'], square['c']
+        self.grid_data[r][c]['content']['aura'] = aura
+        flag_modified(self, "grid_data")
+        db.session.commit()
+
+
     def has_mask(self, square):
         return self.grid_data[square['r']][square['c']] is not None and 'mask' in self.grid_data[square['r']][square['c']] and self.grid_data[square['r']][square['c']]['mask']
     
@@ -372,7 +381,7 @@ class Board(db.Model):
     #     db.session.commit()
 
     def toggle_mask_square(self, square):
-        self.grid_data[square['r']][[square['c']]]['mask'] = not self.grid_data[square['r']][square['c']]['mask']
+        self.grid_data[square['r']][square['c']]['mask'] = not self.grid_data[square['r']][square['c']]['mask']
         flag_modified(self, "grid_data")
         if self.super_secret:
             self.update_visible_map()
@@ -472,7 +481,7 @@ class Board(db.Model):
 
             for row in self.grid_data:
                 if amount > 0:
-                    row.extend([None] * amount)
+                    row.extend([blank_square() for _ in range(amount)])
                 elif amount < 0:
                     del row[new_size:]
 
@@ -481,7 +490,7 @@ class Board(db.Model):
 
             if amount > 0:
                 for _ in range(amount):
-                    self.grid_data.append([None for _ in range(num_cols)])
+                    self.grid_data.append([blank_square() for _ in range(num_cols)])
             elif amount < 0:
                 self.grid_data = self.grid_data[:new_size]
 
@@ -548,7 +557,13 @@ class Board(db.Model):
         return self.grid_data
 
     def set_grid_offset(self, offset):
-        self.grid_offset = offset
+        self.grid_offset['type'] = offset
+        flag_modified(self, 'grid_offset')
+        db.session.commit()
+
+    def set_grid_offset_amount(self, amount):
+        self.grid_offset['amount'] = amount
+        flag_modified(self, 'grid_offset')
         db.session.commit()
 
 
@@ -1160,7 +1175,15 @@ def board_access():
             {'changes': changes},
             room=str(board.board_id)
         )
-    
+    if data['board_method'] == 'update_aura':
+        board.set_aura(data['square'], data['aura'])
+        socketio.emit(
+            'update squares',
+            {'changes': [[data['square'], board.get_square(data['square'])]]},
+            room=str(board.board_id)
+        )
+
+
     elif not can_edit:
         return 'You don\'t have permission to do that', 403
 
@@ -1216,6 +1239,13 @@ def board_access():
             {'offset': board.grid_offset},
             room=str(board.board_id)
         )
+    elif data['board_method'] == 'set_grid_offset_amount':
+        board.set_grid_offset_amount(data['amount'])
+        socketio.emit(
+            'set grid_offset',
+            {'offset': board.grid_offset},
+            room=str(board.board_id)
+        )
     elif data['board_method'] == 'toggle_unique':
         changes = board.toggle_unique(data['square'])
         socketio.emit(
@@ -1223,6 +1253,7 @@ def board_access():
             {'changes': changes},
             room=str(board.board_id)
         )
+    
 
     elif not is_owner:
         return 'You don\'t have permission to do that', 403
@@ -1308,7 +1339,7 @@ def user():
     )
 
 
-@app.route('/board/<string:board_id>')
+@app.route('/board/<string:board_id>/', strict_slashes=True)
 def board(board_id):
     try:
         # Check if the board_id is a valid UUID

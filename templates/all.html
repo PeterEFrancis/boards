@@ -144,7 +144,14 @@
                                     <td width="500px">
                                         <strong>Mask:</strong> {{ el['mask'] }}<br>
                                         <strong>Unique:</strong> {{ el['unique'] }}<br>
-                                        <strong>Content:</strong> {{ el['content'] }}<br>
+                                        <strong>Content:</strong>
+                                        <ul style="list-style: none;">
+                                        {% if el['content'] %}
+                                            {% for k in el['content'] %}
+                                                <li><strong>{{ k }}</strong>: {{ el['content'][k] }}</li>
+                                            {% endfor %}
+                                        {% endif %}
+                                        </ul>
                                         <!-- <div class="grid-item" onclick='alert(JSON.stringify({{el|tojson}}))'>
                                             {% if el['type'] == "avatar" %}
                                             <img class="img-fluid rounded-circle" src="/image/{{el['image_id']}}" alt="Avatar">
@@ -168,7 +175,10 @@
                     <td>{{ board.users_can_edit }}</td>
                     <td>{{ board.super_secret }}</td>
                     <td>{{ board.visible_map_up_to_date }}</td>
-                    <td>{{ board.grid_offset }}</td>
+                    <td>
+                        <strong>Type:</strong> {{ board.grid_offset['type'] }}<br>
+                        <strong>Amount:</strong> {{ board.grid_offset['amount'] }}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
